@@ -3,7 +3,7 @@ export class HerdrError extends Error {
   /** Creates a Herdr error with a safe, caller-provided message. */
   constructor(options: { readonly message: string }) {
     super(options.message);
-    this.name = "HerdrError";
+    this.name = 'HerdrError';
   }
 }
 
@@ -23,7 +23,7 @@ export class HerdrEnvError extends HerdrError {
         ? `Invalid Herdr environment: ${options.reason}`
         : `Invalid Herdr environment variable ${variable}: ${options.reason}`;
     super({ message });
-    this.name = "HerdrEnvError";
+    this.name = 'HerdrEnvError';
     this.variable = variable;
     this.reason = options.reason;
   }
@@ -53,7 +53,7 @@ export class HerdrCliError extends HerdrError {
     super({
       message: `Herdr CLI error during ${options.operation} (${options.code}): ${options.message}`,
     });
-    this.name = "HerdrCliError";
+    this.name = 'HerdrCliError';
     this.code = options.code;
     this.operation = options.operation;
     this.argv = [...options.argv];
@@ -79,7 +79,7 @@ export class HerdrResponseError extends HerdrError {
     readonly detail: string;
   }) {
     super({ message: `Invalid Herdr response for ${options.operation}: ${options.detail}` });
-    this.name = "HerdrResponseError";
+    this.name = 'HerdrResponseError';
     this.operation = options.operation;
     this.argv = [...options.argv];
     this.detail = options.detail;
@@ -116,7 +116,7 @@ export class HerdrProcessError extends HerdrError {
     readonly cause?: unknown;
   }) {
     super({ message: `Herdr process failed during ${options.operation}.` });
-    this.name = "HerdrProcessError";
+    this.name = 'HerdrProcessError';
     this.operation = options.operation;
     this.argv = [...options.argv];
     this.exitCode = options.exitCode;
@@ -148,7 +148,7 @@ export class HerdrTimeoutError extends HerdrError {
     super({
       message: `Herdr command timed out during ${options.operation} after ${options.timeoutMs}ms.`,
     });
-    this.name = "HerdrTimeoutError";
+    this.name = 'HerdrTimeoutError';
     this.operation = options.operation;
     this.argv = [...options.argv];
     this.timeoutMs = options.timeoutMs;

@@ -1,4 +1,4 @@
-import type { AgentStatus } from "../runtime/types.js";
+import type { AgentStatus } from '../runtime/types.js';
 
 /** Agent information returned by the Herdr CLI. */
 export interface Agent {
@@ -54,7 +54,7 @@ export interface Pane {
 /** Agent session metadata returned as part of an agent or pane payload. */
 export interface AgentSession {
   readonly agent: string;
-  readonly kind: "id" | "path";
+  readonly kind: 'id' | 'path';
   readonly source: string;
   readonly value: string;
   readonly [key: string]: unknown;
@@ -96,10 +96,10 @@ export interface Tab {
 }
 
 /** Terminal content source accepted by a Herdr read command. */
-export type ReadSource = "visible" | "recent" | "recent-unwrapped" | "detection";
+export type ReadSource = 'visible' | 'recent' | 'recent-unwrapped' | 'detection';
 
 /** Terminal content format accepted by a Herdr read command. */
-export type ReadFormat = "text" | "ansi";
+export type ReadFormat = 'text' | 'ansi';
 
 /** Options forwarded to an agent or pane read command. */
 export interface ReadOptions {
@@ -114,7 +114,7 @@ export interface HerdrClientOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
   readonly maxBuffer?: number;
-  readonly executor?: import("./executor.js").HerdrCommandExecutor;
+  readonly executor?: import('./executor.js').HerdrCommandExecutor;
 }
 
 /** Typed operations exposed by the Herdr CLI client. */

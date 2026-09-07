@@ -3,9 +3,9 @@ import {
   HerdrProcessError,
   HerdrResponseError,
   HerdrTimeoutError,
-} from "../errors.js";
-import type { HerdrCommandResult } from "./executor.js";
-import type { Agent, Pane, Tab, Workspace } from "./types.js";
+} from '../errors.js';
+import type { HerdrCommandResult } from './executor.js';
+import type { Agent, Pane, Tab, Workspace } from './types.js';
 
 interface RequiredField {
   readonly name: string;
@@ -21,52 +21,52 @@ type ResourceSpec = readonly [
 
 type CliErrorPayload = { readonly code: string; readonly message: string };
 
-const isString = (value: unknown): boolean => typeof value === "string";
-const isBoolean = (value: unknown): boolean => typeof value === "boolean";
-const isInteger = (value: unknown): boolean => typeof value === "number" && Number.isInteger(value);
+const isString = (value: unknown): boolean => typeof value === 'string';
+const isBoolean = (value: unknown): boolean => typeof value === 'boolean';
+const isInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value);
 
 const AGENT_FIELDS: readonly RequiredField[] = [
-  required("pane_id", isString),
-  required("terminal_id", isString),
-  required("workspace_id", isString),
-  required("tab_id", isString),
-  required("focused", isBoolean),
-  required("agent_status", isAgentStatus),
-  required("revision", isInteger),
+  required('pane_id', isString),
+  required('terminal_id', isString),
+  required('workspace_id', isString),
+  required('tab_id', isString),
+  required('focused', isBoolean),
+  required('agent_status', isAgentStatus),
+  required('revision', isInteger),
 ];
 
 const PANE_FIELDS = AGENT_FIELDS;
 
 const WORKSPACE_FIELDS: readonly RequiredField[] = [
-  required("workspace_id", isString),
-  required("active_tab_id", isString),
-  required("label", isString),
-  required("number", isInteger),
-  required("pane_count", isInteger),
-  required("tab_count", isInteger),
-  required("agent_status", isAgentStatus),
-  required("focused", isBoolean),
+  required('workspace_id', isString),
+  required('active_tab_id', isString),
+  required('label', isString),
+  required('number', isInteger),
+  required('pane_count', isInteger),
+  required('tab_count', isInteger),
+  required('agent_status', isAgentStatus),
+  required('focused', isBoolean),
 ];
 
 const TAB_FIELDS: readonly RequiredField[] = [
-  required("tab_id", isString),
-  required("workspace_id", isString),
-  required("label", isString),
-  required("number", isInteger),
-  required("pane_count", isInteger),
-  required("agent_status", isAgentStatus),
-  required("focused", isBoolean),
+  required('tab_id', isString),
+  required('workspace_id', isString),
+  required('label', isString),
+  required('number', isInteger),
+  required('pane_count', isInteger),
+  required('agent_status', isAgentStatus),
+  required('focused', isBoolean),
 ];
 
-const AGENT_SPEC: ResourceSpec = ["agent.get", "agent_info", "agent", AGENT_FIELDS];
-const PANE_SPEC: ResourceSpec = ["pane.get", "pane_info", "pane", PANE_FIELDS];
+const AGENT_SPEC: ResourceSpec = ['agent.get', 'agent_info', 'agent', AGENT_FIELDS];
+const PANE_SPEC: ResourceSpec = ['pane.get', 'pane_info', 'pane', PANE_FIELDS];
 const WORKSPACE_SPEC: ResourceSpec = [
-  "workspace.list",
-  "workspace_list",
-  "workspaces",
+  'workspace.list',
+  'workspace_list',
+  'workspaces',
   WORKSPACE_FIELDS,
 ];
-const TAB_SPEC: ResourceSpec = ["tab.list", "tab_list", "tabs", TAB_FIELDS];
+const TAB_SPEC: ResourceSpec = ['tab.list', 'tab_list', 'tabs', TAB_FIELDS];
 
 export function parseAgentResponse(
   result: HerdrCommandResult,
@@ -103,7 +103,7 @@ export function parseTabResponse(
 /** Handles process status; agent_not_found and pane_not_found errors always throw. */
 export function parseReadResponse(
   result: HerdrCommandResult,
-  operation: "agent.read" | "pane.read",
+  operation: 'agent.read' | 'pane.read',
   argv: readonly string[],
   timeoutMs: number,
 ): string {
@@ -164,12 +164,12 @@ function parseStructuredEnvelope(
 
   const parsed = parseJson(readText(result.stdout));
   if (!isPlainObject(parsed)) {
-    throw responseError(operation, argv, "stdout must contain a JSON object.");
+    throw responseError(operation, argv, 'stdout must contain a JSON object.');
   }
 
   const response = parsed.result;
   if (!isPlainObject(response)) {
-    throw responseError(operation, argv, "stdout is missing a result object.");
+    throw responseError(operation, argv, 'stdout is missing a result object.');
   }
 
   if (response.type !== expectedType) {
@@ -232,7 +232,7 @@ function parseCliError(stderr: string): CliErrorPayload | null {
     return null;
   }
 
-  if (typeof parsed.error.code !== "string" || typeof parsed.error.message !== "string") {
+  if (typeof parsed.error.code !== 'string' || typeof parsed.error.message !== 'string') {
     return null;
   }
 
@@ -277,11 +277,11 @@ function parseJson(value: string): unknown {
 }
 
 function readText(value: unknown): string {
-  return typeof value === "string" ? value : "";
+  return typeof value === 'string' ? value : '';
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
 
@@ -291,10 +291,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isAgentStatus(value: unknown): boolean {
   return (
-    value === "idle" ||
-    value === "working" ||
-    value === "blocked" ||
-    value === "done" ||
-    value === "unknown"
+    value === 'idle' ||
+    value === 'working' ||
+    value === 'blocked' ||
+    value === 'done' ||
+    value === 'unknown'
   );
 }

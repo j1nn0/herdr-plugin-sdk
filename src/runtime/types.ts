@@ -1,5 +1,5 @@
 /** Agent status values defined by the Herdr plugin event contract. */
-export type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
 
 /** Wire-shaped worktree information carried in a plugin invocation context. */
 export interface WorkspaceWorktree {
@@ -32,15 +32,15 @@ export interface PluginContext {
 /** Identifies the kind of Herdr invocation that launched a plugin command. */
 export type PluginInvocation =
   | {
-      readonly kind: "action";
+      readonly kind: 'action';
       readonly actionId: string;
       readonly clickedUrl: string | null;
       readonly linkHandlerId: string | null;
     }
-  | { readonly kind: "event"; readonly event: string }
-  | { readonly kind: "startup" }
-  | { readonly kind: "pane"; readonly entrypointId: string }
-  | { readonly kind: "unknown" };
+  | { readonly kind: 'event'; readonly event: string }
+  | { readonly kind: 'startup' }
+  | { readonly kind: 'pane'; readonly entrypointId: string }
+  | { readonly kind: 'unknown' };
 
 /** Normalized environment information for the current plugin command. */
 export interface PluginRuntime {
@@ -74,7 +74,7 @@ export type EnvSource = Readonly<Record<string, string | undefined>>;
 
 /** Typed data for a `pane_agent_status_changed` event. */
 export interface PaneAgentStatusChangedData extends PluginEventData {
-  readonly type: "pane_agent_status_changed";
+  readonly type: 'pane_agent_status_changed';
   readonly pane_id: string;
   readonly workspace_id: string;
   readonly agent_status: AgentStatus;
