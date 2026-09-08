@@ -110,7 +110,10 @@ jobs:
 
           # pnpm pack does not build, so an unbuilt tree would ship a tarball
           # without dist/ and surface as a confusing module-resolution error.
-          if ! tar -tzf "$tarball" | grep -Fqx 'package/dist/index.js'; then
+          # List into a variable first: piping into `grep -q` under pipefail
+          # makes tar fail with SIGPIPE once grep exits early.
+          contents="$(tar -tzf "$tarball")"
+          if ! printf '%s\n' "$contents" | grep -Fqx 'package/dist/index.js'; then
             echo 'Packed tarball is missing dist/; build the SDK before packing.' >&2
             exit 1
           fi
