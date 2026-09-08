@@ -37,7 +37,7 @@ export function readPluginContext(env: EnvSource = process.env): PluginContext {
     });
   }
 
-  return sanitizeContext(parsed);
+  return validateContext(parsed);
 }
 
 function parseJson(raw: string, variable: string): unknown {
@@ -51,43 +51,44 @@ function parseJson(raw: string, variable: string): unknown {
   }
 }
 
-function sanitizeContext(value: Record<string, unknown>): PluginContext {
-  const context: Record<string, unknown> = { ...value };
-
-  // Drop malformed known fields instead of coercing them; unknown fields remain untouched.
+function validateContext(value: Record<string, unknown>): PluginContext {
   for (const field of CONTEXT_STRING_FIELDS) {
-    if (typeof context[field] !== 'string') {
-      delete context[field];
+    if (field in value && typeof value[field] !== 'string') {
+      throw invalidContextField(field, 'must be a string');
     }
   }
 
-  if ('focused_pane_status' in context && !isAgentStatus(context.focused_pane_status)) {
-    delete context.focused_pane_status;
+  if ('focused_pane_status' in value && !isAgentStatus(value.focused_pane_status)) {
+    throw invalidContextField('focused_pane_status', 'must be a valid agent status');
   }
 
-  if ('worktree' in context) {
-    const worktree = context.worktree;
-    if (isPlainObject(worktree)) {
-      context.worktree = sanitizeWorktree(worktree);
-    } else {
-      delete context.worktree;
+  if ('worktree' in value) {
+    if (!isPlainObject(value.worktree)) {
+      throw invalidContextField('worktree', 'must be a plain object');
     }
+    validateWorktree(value.worktree);
   }
 
-  return context as PluginContext;
+  return value as PluginContext;
 }
 
-function sanitizeWorktree(value: Record<string, unknown>): Record<string, unknown> {
-  const worktree: Record<string, unknown> = { ...value };
+function validateWorktree(value: Record<string, unknown>): void {
   for (const field of WORKTREE_STRING_FIELDS) {
-    if (typeof worktree[field] !== 'string') {
-      delete worktree[field];
+    if (field in value && typeof value[field] !== 'string') {
+      throw invalidContextField(`worktree.${field}`, 'must be a string');
     }
   }
-  if ('is_linked_worktree' in worktree && typeof worktree.is_linked_worktree !== 'boolean') {
-    delete worktree.is_linked_worktree;
+
+  if ('is_linked_worktree' in value && typeof value.is_linked_worktree !== 'boolean') {
+    throw invalidContextField('worktree.is_linked_worktree', 'must be a boolean');
   }
-  return worktree;
+}
+
+function invalidContextField(path: string, expected: string): HerdrEnvError {
+  return new HerdrEnvError({
+    variable: CONTEXT_VARIABLE,
+    reason: `field "${path}" ${expected}.`,
+  });
 }
 
 function isAgentStatus(

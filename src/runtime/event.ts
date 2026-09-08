@@ -12,8 +12,11 @@ const EVENT_VARIABLE = 'HERDR_PLUGIN_EVENT_JSON';
 /** Parses the optional Herdr plugin event envelope from its JSON environment variable. */
 export function readPluginEvent(env: EnvSource = process.env): PluginEvent | null {
   const raw = env[EVENT_VARIABLE];
-  if (raw === undefined || raw === '') {
+  if (raw === undefined) {
     return null;
+  }
+  if (raw === '') {
+    throw invalidEvent('must not be empty.');
   }
 
   const parsed = parseJson(raw);
@@ -45,7 +48,9 @@ export function isPaneAgentStatusChanged(
   event: PluginEvent,
 ): event is PluginEvent & { data: PaneAgentStatusChangedData } {
   return (
+    event.event === 'pane_agent_status_changed' &&
     event.data.type === 'pane_agent_status_changed' &&
+    (event.name === null || event.name === 'pane.agent_status_changed') &&
     typeof event.data.pane_id === 'string' &&
     typeof event.data.workspace_id === 'string' &&
     isAgentStatus(event.data.agent_status)

@@ -132,16 +132,24 @@ describe('plugin context', () => {
     expect(readPluginContext({ HERDR_PLUGIN_CONTEXT_JSON: '{}' })).toEqual({});
   });
 
-  it('drops a malformed known field while keeping valid siblings and unknown fields', () => {
-    const context = readPluginContext({
-      HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify({
-        workspace_id: 42,
-        workspace_label: 'kept',
-        future_field: 'also kept',
-      }),
-    });
+  it.each([
+    ['workspace_id', { workspace_id: 42 }],
+    ['focused_pane_status', { focused_pane_status: 'future-invalid-value' }],
+    ['worktree', { worktree: [] }],
+    ['worktree', { worktree: 'x' }],
+    ['worktree.repo_name', { worktree: { repo_name: 123 } }],
+    ['worktree.is_linked_worktree', { worktree: { is_linked_worktree: 'yes' } }],
+  ])('rejects malformed known context field %s', (field, payload) => {
+    let error: HerdrEnvError | undefined;
 
-    expect(context).toEqual({ workspace_label: 'kept', future_field: 'also kept' });
+    try {
+      readPluginContext({ HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(payload) });
+    } catch (caught) {
+      error = caught as HerdrEnvError;
+    }
+
+    expect(error).toBeInstanceOf(HerdrEnvError);
+    expect(error?.reason).toContain(field);
   });
 
   it.each([
@@ -166,9 +174,12 @@ describe('plugin events', () => {
     },
   };
 
-  it('returns null when no event payload is present', () => {
+  it('returns null when no event JSON is present', () => {
     expect(readPluginEvent({})).toBeNull();
-    expect(readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: '' })).toBeNull();
+  });
+
+  it('rejects an empty event JSON value', () => {
+    expect(() => readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: '' })).toThrow(HerdrEnvError);
   });
 
   it('parses the observed status event and preserves unknown data', () => {
@@ -199,22 +210,34 @@ describe('plugin events', () => {
     expect(event?.data.value).toBe('new');
   });
 
-  it('rejects malformed JSON and malformed envelopes', () => {
+  it('rejects malformed event JSON', () => {
     expect(() => readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: '{' })).toThrow(HerdrEnvError);
-    expect(() =>
-      readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: JSON.stringify({ data: {} }) }),
-    ).toThrow(HerdrEnvError);
-    expect(() =>
-      readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: JSON.stringify({ event: 'future', data: [] }) }),
-    ).toThrow(HerdrEnvError);
+  });
+
+  it.each([
+    ['missing event', { data: { type: 'future' } }],
+    ['non-object data', { event: 'future', data: [] }],
+    ['missing data.type', { event: 'future', data: {} }],
+    ['empty data.type', { event: 'future', data: { type: '' } }],
+  ])('rejects malformed event envelope: %s', (_label, payload) => {
+    expect(() => readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: JSON.stringify(payload) })).toThrow(
+      HerdrEnvError,
+    );
   });
 
   it('narrows only matching events with all required fields', () => {
-    const valid = readPluginEvent({ HERDR_PLUGIN_EVENT_JSON: JSON.stringify(observedEvent) });
-    const other = readPluginEvent({
+    const validWithoutName = readPluginEvent({
+      HERDR_PLUGIN_EVENT_JSON: JSON.stringify(observedEvent),
+    });
+    const inconsistent = readPluginEvent({
       HERDR_PLUGIN_EVENT_JSON: JSON.stringify({
         event: 'pane_created',
-        data: { type: 'pane_created', pane_id: 'p1', workspace_id: 'w1' },
+        data: {
+          type: 'pane_agent_status_changed',
+          pane_id: 'p1',
+          workspace_id: 'w1',
+          agent_status: 'done',
+        },
       }),
     });
     const missing = readPluginEvent({
@@ -223,28 +246,50 @@ describe('plugin events', () => {
         data: { type: 'pane_agent_status_changed', workspace_id: 'w1', agent_status: 'done' },
       }),
     });
+    const contradictoryName = readPluginEvent({
+      HERDR_PLUGIN_EVENT: 'pane.created',
+      HERDR_PLUGIN_EVENT_JSON: JSON.stringify(observedEvent),
+    });
 
-    expect(isPaneAgentStatusChanged(valid as NonNullable<typeof valid>)).toBe(true);
-    expect(isPaneAgentStatusChanged(other as NonNullable<typeof other>)).toBe(false);
+    expect(validWithoutName?.name).toBeNull();
+    expect(isPaneAgentStatusChanged(validWithoutName as NonNullable<typeof validWithoutName>)).toBe(
+      true,
+    );
+    expect(isPaneAgentStatusChanged(inconsistent as NonNullable<typeof inconsistent>)).toBe(false);
     expect(isPaneAgentStatusChanged(missing as NonNullable<typeof missing>)).toBe(false);
+    expect(
+      isPaneAgentStatusChanged(contradictoryName as NonNullable<typeof contradictoryName>),
+    ).toBe(false);
   });
 
-  it('keeps malformed JSON details and unrelated secrets out of errors', () => {
-    const secret = 'unrelated-secret-value';
-    const rawPayload = '{"selected_text":"terminal-secret"';
-    let error: HerdrEnvError | undefined;
+  it.each([
+    [
+      'context',
+      readPluginContext,
+      'HERDR_PLUGIN_CONTEXT_JSON',
+      '{"selected_text":"terminal-secret"',
+    ],
+    [
+      'event',
+      readPluginEvent,
+      'HERDR_PLUGIN_EVENT_JSON',
+      '{"event":"pane_agent_status_changed","data":{"type":"pane_agent_status_changed","selected_text":"terminal-secret"}',
+    ],
+  ] as const)(
+    'keeps %s payloads and unrelated secrets out of errors',
+    (_label, read, variable, rawPayload) => {
+      const secret = 'unrelated-secret-value';
+      let error: HerdrEnvError | undefined;
 
-    try {
-      readPluginContext({
-        UNRELATED_SECRET: secret,
-        HERDR_PLUGIN_CONTEXT_JSON: rawPayload,
-      });
-    } catch (caught) {
-      error = caught as HerdrEnvError;
-    }
+      try {
+        read({ UNRELATED_SECRET: secret, [variable]: rawPayload });
+      } catch (caught) {
+        error = caught as HerdrEnvError;
+      }
 
-    expect(error).toBeInstanceOf(HerdrEnvError);
-    expect(error?.message).not.toContain(secret);
-    expect(error?.message).not.toContain(rawPayload);
-  });
+      expect(error).toBeInstanceOf(HerdrEnvError);
+      expect(error?.message).not.toContain(secret);
+      expect(error?.message).not.toContain(rawPayload);
+    },
+  );
 });

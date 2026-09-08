@@ -52,6 +52,8 @@ switch (invocation.kind) {
 
 `readPluginContext` reads `HERDR_PLUGIN_CONTEXT_JSON`, while `readPluginEvent` reads the optional `HERDR_PLUGIN_EVENT_JSON` envelope. `isPaneAgentStatusChanged` narrows an event after its required fields have been checked.
 
+Only an event-hook command receives `HERDR_PLUGIN_EVENT_JSON`, so `readPluginEvent` returns `null` when the variable is absent. A variable that is present but empty is a broken runtime boundary rather than "not an event hook", and throws `HerdrEnvError`.
+
 ```ts
 import {
   isPaneAgentStatusChanged,
@@ -164,7 +166,7 @@ The corresponding missing-agent code is `agent_not_found`.
 ## Guarantees
 
 - Read output is returned exactly as Herdr produced it and is never parsed as JSON.
-- Unknown fields in Herdr responses are preserved and never cause failures.
+- Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. A field whose contract the SDK already models is a different matter: if it is present with an invalid type, parsing throws rather than silently dropping it.
 - Commands run with a binary plus an argument vector; they never run through a shell.
 - Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API.
 
