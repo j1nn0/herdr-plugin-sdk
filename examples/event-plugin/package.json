@@ -1,0 +1,17 @@
+{
+  "name": "herdr-example-event-plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/handle-event-node-test.js"
+  },
+  "dependencies": {
+    "@j1nn0/herdr-plugin-sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

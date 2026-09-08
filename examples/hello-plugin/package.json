@@ -1,0 +1,16 @@
+{
+  "name": "herdr-example-hello-plugin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@j1nn0/herdr-plugin-sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

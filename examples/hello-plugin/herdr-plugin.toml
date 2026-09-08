@@ -1,0 +1,13 @@
+id = "example.hello"
+name = "Hello"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Lists Herdr workspaces through the typed SDK."
+platforms = ["linux", "macos", "windows"]
+
+[[actions]]
+id = "list-workspaces"
+title = "List workspaces"
+description = "Prints a short summary of the visible workspaces."
+contexts = ["global"]
+command = ["node", "dist/list-workspaces.js"]

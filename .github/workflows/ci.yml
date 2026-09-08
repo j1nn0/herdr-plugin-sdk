@@ -69,3 +69,62 @@ jobs:
                 ;;
             esac
           done <<< "$contents"
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install SDK dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify examples against packed SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_root="$(mktemp -d)"
+          trap 'rm -rf -- "$temp_root"' EXIT
+
+          pnpm pack --pack-destination "$temp_root"
+          tarball="$(find "$temp_root" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          if [ -z "$tarball" ]; then
+            echo 'pnpm pack did not create a tarball.' >&2
+            exit 1
+          fi
+
+          for example in hello-plugin event-plugin; do
+            source_dir="examples/$example"
+            target_dir="$temp_root/$example"
+            cp -R "$source_dir" "$target_dir"
+
+            node - "$target_dir/package.json" "$tarball" <<'NODE'
+          const fs = require('node:fs');
+          const [packagePath, tarballPath] = process.argv.slice(2);
+          const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          packageJson.dependencies['@j1nn0/herdr-plugin-sdk'] = tarballPath;
+          fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+          NODE
+
+            (
+              cd "$target_dir"
+              npm install
+              npm run typecheck
+              npm run build
+              if [ "$example" = event-plugin ]; then
+                npm test
+              fi
+            )
+          done

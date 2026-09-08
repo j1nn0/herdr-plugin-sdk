@@ -1,0 +1,10 @@
+id = "example.event"
+name = "Event"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Reads pane output when this example's policy notices a done status."
+platforms = ["linux", "macos", "windows"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["node", "dist/hook.js"]
