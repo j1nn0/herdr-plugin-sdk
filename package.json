@@ -2,14 +2,31 @@
   "name": "@j1nn0/herdr-plugin-sdk",
   "version": "0.1.0",
   "description": "Unofficial TypeScript SDK and toolkit for building, testing, and integrating Herdr plugins.",
+  "keywords": [
+    "cli",
+    "herdr",
+    "plugin",
+    "sdk",
+    "terminal",
+    "typescript"
+  ],
+  "homepage": "https://github.com/j1nn0/herdr-plugin-sdk",
+  "bugs": {
+    "url": "https://github.com/j1nn0/herdr-plugin-sdk/issues"
+  },
   "license": "MIT",
-  "repository": "https://github.com/j1nn0/herdr-plugin-sdk",
+  "author": "j1nn0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/j1nn0/herdr-plugin-sdk.git"
+  },
   "files": [
     "dist",
     "LICENSE",
     "README.md"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -19,6 +36,9 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "format": "oxfmt",

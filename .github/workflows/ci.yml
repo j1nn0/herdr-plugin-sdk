@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22', '24']
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm check
+
+      - name: Verify packed contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f ./*.tgz
+          tarball=''
+          trap 'if [ -n "$tarball" ]; then rm -f -- "$tarball"; fi' EXIT
+
+          pnpm pack --pack-destination .
+          tarball="$(find . -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          if [ -z "$tarball" ]; then
+            echo 'pnpm pack did not create a tarball.' >&2
+            exit 1
+          fi
+
+          contents="$(tar -tzf "$tarball" | sed -e 's#^package/##' -e 's#/$##')"
+          for required in \
+            dist/index.js \
+            dist/index.d.ts \
+            dist/testing/index.js \
+            dist/testing/index.d.ts; do
+            if ! printf '%s\n' "$contents" | grep -Fqx "$required"; then
+              echo "Missing packed file: $required" >&2
+              exit 1
+            fi
+          done
+
+          while IFS= read -r entry; do
+            case "$entry" in
+              src|src/*|tests|tests/*|tsconfig.json|pnpm-lock.yaml|.oxlintrc.json|.oxfmtrc.json)
+                echo "Forbidden packed entry: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$contents"
