@@ -1,0 +1,434 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release without a leading v (for example 0.1.1).
+        required: true
+        type: string
+
+jobs:
+  verify:
+    name: Verify release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      PACKAGE_NAME: '@j1nn0/herdr-plugin-sdk'
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Validate release ref and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Release workflows must be dispatched from main (got $GITHUB_REF)." >&2
+            exit 1
+          fi
+
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "main changed while the workflow was starting; the checked-out commit is not the workflow run SHA." >&2
+            exit 1
+          fi
+
+          node - "$RELEASE_VERSION" <<'NODE'
+          const version = process.argv[2] ?? '';
+          const semverPattern =
+            /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+          if (version.startsWith('v')) {
+            console.error('Release version must not have a leading v.');
+            process.exit(1);
+          }
+
+          if (!semverPattern.test(version)) {
+            console.error(`Release version is not valid SemVer: ${version}`);
+            process.exit(1);
+          }
+          NODE
+
+          node - "$RELEASE_VERSION" <<'NODE'
+          import fs from 'node:fs';
+
+          const version = process.argv[2];
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (packageJson.version !== version) {
+            console.error(
+              `package.json version ${packageJson.version} does not exactly match ${version}.`,
+            );
+            process.exit(1);
+          }
+          NODE
+
+          node - "$RELEASE_VERSION" <<'NODE'
+          import fs from 'node:fs';
+
+          const version = process.argv[2];
+          const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const heading = new RegExp(
+            `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`,
+          );
+          const hasHeading = fs
+            .readFileSync('CHANGELOG.md', 'utf8')
+            .split(/\r?\n/)
+            .some((line) => heading.test(line));
+
+          if (!hasHeading) {
+            console.error(
+              `CHANGELOG.md is missing a dated heading for ${version}: ## [${version}] - YYYY-MM-DD`,
+            );
+            process.exit(1);
+          }
+          NODE
+
+      - name: Verify release tag is unused
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "Git tag $tag already exists locally." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Git tag $tag already exists on origin." >&2
+            exit 1
+          else
+            remote_status=$?
+            if [ "$remote_status" -ne 2 ]; then
+              echo "Unable to check whether git tag $tag exists on origin (git ls-remote exit $remote_status)." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Verify npm version is unused
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          npm_view_output="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version --registry=https://registry.npmjs.org 2>&1)"
+          npm_view_status=$?
+          set -e
+
+          if [ "$npm_view_status" -eq 0 ]; then
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} already exists on npm." >&2
+            exit 1
+          fi
+
+          if printf '%s\n' "$npm_view_output" | grep -Eq 'npm error code E404|npm error 404|404 Not Found'; then
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is not published on npm yet."
+          else
+            echo "Could not verify npm availability for ${PACKAGE_NAME}@${RELEASE_VERSION}; registry lookup failed." >&2
+            printf '%s\n' "$npm_view_output" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm check
+
+      - name: Verify packed contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$temp_dir"' EXIT
+
+          pnpm pack --pack-destination "$temp_dir"
+          tarball="$(find "$temp_dir" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          if [ -z "$tarball" ]; then
+            echo 'pnpm pack did not create a tarball.' >&2
+            exit 1
+          fi
+
+          contents="$(tar -tzf "$tarball" | sed -e 's#^package/##' -e 's#/$##')"
+          for required in \
+            dist/index.js \
+            dist/index.d.ts \
+            dist/testing/index.js \
+            dist/testing/index.d.ts \
+            CHANGELOG.md; do
+            if ! printf '%s\n' "$contents" | grep -Fqx "$required"; then
+              echo "Missing packed file: $required" >&2
+              exit 1
+            fi
+          done
+
+          while IFS= read -r entry; do
+            case "$entry" in
+              src|src/*|tests|tests/*|tsconfig.json|pnpm-lock.yaml|.oxlintrc.json|.oxfmtrc.json)
+                echo "Forbidden packed entry: $entry" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$contents"
+
+  publish-npm:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      PACKAGE_NAME: '@j1nn0/herdr-plugin-sdk'
+    steps:
+      - name: Check out workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify npm Trusted Publishing CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          minimum='11.5.1'
+          current="$(npm --version)"
+
+          if node - "$current" "$minimum" <<'NODE'
+          const [actual, minimum] = process.argv.slice(2);
+          const parse = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version ?? '');
+            return match ? match.slice(1, 4).map(Number) : null;
+          };
+          const actualParts = parse(actual);
+          const minimumParts = parse(minimum);
+          let meetsMinimum = actualParts !== null && minimumParts !== null;
+          if (meetsMinimum) {
+            for (let index = 0; index < 3; index += 1) {
+              if (actualParts[index] !== minimumParts[index]) {
+                meetsMinimum = actualParts[index] > minimumParts[index];
+                break;
+              }
+            }
+          }
+          process.exit(meetsMinimum ? 0 : 1);
+          NODE
+          then
+            echo "npm $current satisfies the Trusted Publishing minimum of $minimum."
+          else
+            echo "npm $current is below the Trusted Publishing minimum of $minimum; upgrading npm deliberately."
+            npm install --global npm@latest
+          fi
+
+          current="$(npm --version)"
+          if ! node - "$current" "$minimum" <<'NODE'
+          const [actual, minimum] = process.argv.slice(2);
+          const parse = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version ?? '');
+            return match ? match.slice(1, 4).map(Number) : null;
+          };
+          const actualParts = parse(actual);
+          const minimumParts = parse(minimum);
+          let meetsMinimum = actualParts !== null && minimumParts !== null;
+          if (meetsMinimum) {
+            for (let index = 0; index < 3; index += 1) {
+              if (actualParts[index] !== minimumParts[index]) {
+                meetsMinimum = actualParts[index] > minimumParts[index];
+                break;
+              }
+            }
+          }
+          process.exit(meetsMinimum ? 0 : 1);
+          NODE
+          then
+            echo "npm $current still does not satisfy the Trusted Publishing minimum of $minimum." >&2
+            exit 1
+          fi
+          echo "Using npm $current for Trusted Publishing."
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Publish package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # npm Trusted Publishing generates provenance automatically for this public package from this public repository.
+          npm publish --access public
+
+      - name: Confirm npm visibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          last_output=''
+
+          for attempt in $(seq 1 10); do
+            set +e
+            last_output="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version --registry=https://registry.npmjs.org 2>&1)"
+            view_status=$?
+            set -e
+
+            if [ "$view_status" -eq 0 ] && [ "$last_output" = "$RELEASE_VERSION" ]; then
+              echo "Confirmed ${PACKAGE_NAME}@${RELEASE_VERSION} is visible on npm."
+              exit 0
+            fi
+
+            echo "npm visibility check attempt $attempt/10 did not confirm ${PACKAGE_NAME}@${RELEASE_VERSION}."
+            if [ "$attempt" -lt 10 ]; then
+              sleep 5
+            fi
+          done
+
+          echo "${PACKAGE_NAME}@${RELEASE_VERSION} was not visible on npm after 10 attempts." >&2
+          printf '%s\n' "$last_output" >&2
+          exit 1
+
+  finalize-github:
+    name: Finalize GitHub release
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Create release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_commit="$GITHUB_SHA"
+          if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
+            echo "The checked-out commit does not match the workflow run SHA." >&2
+            exit 1
+          fi
+
+          tag="v${RELEASE_VERSION}"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            if [ "$(git cat-file -t "$tag")" != "tag" ]; then
+              echo "Existing $tag is not an annotated tag; refusing to retag it." >&2
+              exit 1
+            fi
+            if [ "$(git rev-parse "$tag^{}")" != "$expected_commit" ]; then
+              echo "Existing $tag does not point to the workflow run commit; refusing to retag it." >&2
+              exit 1
+            fi
+            echo "Annotated tag $tag already points to $expected_commit; leaving it unchanged."
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Remote tag $tag already exists but is not available locally; refusing to retag it." >&2
+            exit 1
+          else
+            remote_status=$?
+            if [ "$remote_status" -ne 2 ]; then
+              echo "Unable to check whether remote tag $tag exists (git ls-remote exit $remote_status)." >&2
+              exit 1
+            fi
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$tag" "$expected_commit" -m "Release $tag"
+          if [ "$(git rev-parse "$tag^{}")" != "$expected_commit" ]; then
+            echo "Created tag $tag does not point to the workflow run commit." >&2
+            exit 1
+          fi
+          git push origin "$tag"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          notes_file="$(mktemp)"
+          trap 'rm -f -- "$notes_file"' EXIT
+
+          node - "$RELEASE_VERSION" > "$notes_file" <<'NODE'
+          import fs from 'node:fs';
+
+          const version = process.argv[2] ?? '';
+          const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const lines = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/);
+          const heading = new RegExp(
+            `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`,
+          );
+          const start = lines.findIndex((line) => heading.test(line));
+
+          if (start === -1) {
+            throw new Error(`CHANGELOG.md has no dated section for ${version}.`);
+          }
+
+          const nextSection = /^## \[[^\]]+\](?: - \d{4}-\d{2}-\d{2})?$/;
+          const linkDefinition = /^\[[^\]]+\]:\s+\S/;
+          let end = lines.length;
+          for (let index = start + 1; index < lines.length; index += 1) {
+            if (nextSection.test(lines[index]) || linkDefinition.test(lines[index])) {
+              end = index;
+              break;
+            }
+          }
+
+          const bodyLines = lines.slice(start + 1, end);
+          while (bodyLines[0] === '') bodyLines.shift();
+          while (bodyLines.at(-1) === '') bodyLines.pop();
+          if (!bodyLines.some((line) => line.trim().length > 0)) {
+            throw new Error(`CHANGELOG.md section for ${version} is empty.`);
+          }
+
+          process.stdout.write(`${bodyLines.join('\n')}\n`);
+          NODE
+
+          if [ ! -s "$notes_file" ]; then
+            echo "Release notes for $tag are empty." >&2
+            exit 1
+          fi
+
+          gh release create "$tag" --title "$tag" --notes-file "$notes_file" --verify-tag
