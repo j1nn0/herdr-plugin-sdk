@@ -189,6 +189,41 @@ describe('mock Herdr client', () => {
       await expect(client.agent.read(target)).resolves.toBe(output);
     }
   });
+
+  it('records run argv and uses configured stdout or errors', async () => {
+    const argv = ['plugin', 'pane', 'open', '--plugin', 'example.plugin'];
+    const stdout = '  output\n🌍 你好\n';
+    const client = createMockHerdrClient({
+      run: (receivedArgv) => {
+        expect(receivedArgv).toEqual(argv);
+        return stdout;
+      },
+    });
+
+    await expect(client.run(argv)).resolves.toBe(stdout);
+    expect(client.calls).toEqual([{ operation: 'cli.run', target: null, options: null, argv }]);
+
+    const error = new Error('configured run failure');
+    const failingClient = createMockHerdrClient({ run: () => error });
+    await expect(failingClient.run(argv)).rejects.toBe(error);
+  });
+
+  it('returns an empty string for an unconfigured run', async () => {
+    const client = createMockHerdrClient();
+
+    await expect(client.run(['plugin', 'list'])).resolves.toBe('');
+  });
+
+  it('snapshots run argv in the recorded call history', async () => {
+    const argv = ['plugin', 'list'];
+    const client = createMockHerdrClient({ run: () => 'output' });
+    await client.run(argv);
+
+    const returnedArgv = client.calls[0]?.argv as string[];
+    returnedArgv.push('mutated');
+
+    expect(client.calls[0]?.argv).toEqual(argv);
+  });
 });
 
 describe('testing fixtures', () => {

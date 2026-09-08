@@ -107,6 +107,27 @@ console.log(agent, agentText, pane, paneText, workspaces, tabs);
 
 The client also supports `timeoutMs`, `maxBuffer`, a custom `env`, and an executor seam through `HerdrClientOptions`.
 
+## Generic CLI commands
+
+The Herdr CLI is the official Plugin v1 API. The typed client intentionally starts small. For a Herdr CLI command that does not have a typed method yet, use `run()`:
+
+```ts
+import { createHerdrClient } from '@j1nn0/herdr-plugin-sdk';
+
+const herdr = createHerdrClient();
+const output = await herdr.run([
+  'plugin',
+  'pane',
+  'open',
+  '--plugin',
+  'example.plugin',
+  '--entrypoint',
+  'inbox',
+]);
+```
+
+`run()` uses the same binary resolution, no-shell execution, buffer limits, timeout, and structured error handling as typed methods. Successful stdout is returned unchanged. Prefer a typed method when the SDK provides one; use `run()` otherwise.
+
 ## Testing without Herdr
 
 The testing entrypoint provides an in-memory client and fixtures. Tests do not need a Herdr installation, a running Herdr server, or a socket.
@@ -131,7 +152,7 @@ const runtime = readPluginRuntime(createPluginEnvFixture());
 console.log(agent.agent_status, runtime.pluginId);
 ```
 
-`createMockHerdrClient` records calls and can be configured with agent, pane, read, workspace, and tab results. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
+`createMockHerdrClient` records calls and can be configured with agent, pane, read, workspace, tab, and generic `run()` responses. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
 
 ## Errors
 
@@ -166,13 +187,14 @@ The corresponding missing-agent code is `agent_not_found`.
 ## Guarantees
 
 - Read output is returned exactly as Herdr produced it and is never parsed as JSON.
+- Successful stdout from `run()` is returned unchanged and is never parsed.
 - Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. A field whose contract the SDK already models is a different matter: if it is present with an invalid type, parsing throws rather than silently dropping it.
 - Commands run with a binary plus an argument vector; they never run through a shell.
 - Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API.
 
 ## v0.1 scope
 
-v0.1 provides runtime/environment parsing, context and event parsing, typed CLI operations, safe error types, and testing fixtures/mock clients. It is intentionally a small CLI-first SDK for executable Herdr Plugin v1 commands.
+v0.1 provides runtime/environment parsing, context and event parsing, typed and generic CLI operations, safe error types, and testing fixtures/mock clients. It is intentionally a small CLI-first SDK for executable Herdr Plugin v1 commands.
 
 ### Not included in v0.1
 

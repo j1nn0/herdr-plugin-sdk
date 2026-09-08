@@ -117,7 +117,7 @@ export interface HerdrClientOptions {
   readonly executor?: import('./executor.js').HerdrCommandExecutor;
 }
 
-/** Typed operations exposed by the Herdr CLI client. */
+/** Operations exposed by the Herdr CLI client. */
 export interface HerdrClient {
   readonly agent: {
     /** Gets structured information about an agent target. */
@@ -139,4 +139,6 @@ export interface HerdrClient {
     /** Lists tabs, optionally limited to one workspace. */
     list(options?: { readonly workspaceId?: string }): Promise<Tab[]>;
   };
+  /** Runs a Herdr CLI command and returns its stdout unchanged. */
+  run(argv: readonly string[]): Promise<string>;
 }

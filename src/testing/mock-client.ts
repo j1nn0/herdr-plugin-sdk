@@ -10,9 +10,12 @@ export interface MockHerdrCall {
     | 'pane.get'
     | 'pane.read'
     | 'workspace.list'
-    | 'tab.list';
+    | 'tab.list'
+    | 'cli.run';
   readonly target: string | null;
   readonly options: Readonly<Record<string, unknown>> | null;
+  /** The command arguments for a `cli.run` call, copied as recorded. */
+  readonly argv?: readonly string[];
 }
 
 /** Values used to configure responses from a mock Herdr client. */
@@ -23,6 +26,8 @@ export interface MockHerdrClientSetup {
   readonly paneReads?: Readonly<Record<string, string | Error>>;
   readonly workspaces?: readonly Workspace[] | Error;
   readonly tabs?: readonly Tab[] | Error;
+  /** Response for an unmodeled CLI command. */
+  readonly run?: (argv: readonly string[]) => string | Error;
 }
 
 /** Herdr client test double with an inspectable call history. */
@@ -40,14 +45,20 @@ type RecordCall = (
   operation: MockOperation,
   target: string | null,
   options?: ReadCallOptions,
+  argv?: readonly string[],
 ) => void;
 type LookupOperation = 'agent.get' | 'agent.read' | 'pane.get' | 'pane.read';
 
 /** Creates an in-memory Herdr client whose responses come from `setup`. */
 export function createMockHerdrClient(setup: MockHerdrClientSetup = {}): MockHerdrClient {
   const calls: MockHerdrCall[] = [];
-  const recordCall: RecordCall = (operation, target, options) => {
-    calls.push({ operation, target, options: copyOptions(options) });
+  const recordCall: RecordCall = (operation, target, options, argv) => {
+    calls.push({
+      operation,
+      target,
+      options: copyOptions(options),
+      ...(argv === undefined ? {} : { argv: [...argv] }),
+    });
   };
 
   return {
@@ -56,6 +67,14 @@ export function createMockHerdrClient(setup: MockHerdrClientSetup = {}): MockHer
     },
     reset(): void {
       calls.length = 0;
+    },
+    run(argv: readonly string[]): Promise<string> {
+      const command = [...argv];
+      recordCall('cli.run', null, undefined, command);
+      const configured = setup.run?.(command);
+      return configured instanceof Error
+        ? Promise.reject(configured)
+        : Promise.resolve(configured ?? '');
     },
     agent: createAgentOperations(setup, recordCall),
     pane: createPaneOperations(setup, recordCall),
@@ -194,5 +213,6 @@ function copyCall(call: MockHerdrCall): MockHerdrCall {
     operation: call.operation,
     target: call.target,
     options: call.options === null ? null : { ...call.options },
+    ...(call.argv === undefined ? {} : { argv: [...call.argv] }),
   };
 }

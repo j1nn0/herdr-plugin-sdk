@@ -4,6 +4,7 @@ import {
   parseAgentResponse,
   parsePaneResponse,
   parseReadResponse,
+  parseRunResponse,
   parseTabResponse,
   parseWorkspaceResponse,
 } from './parse.js';
@@ -36,6 +37,14 @@ export function createHerdrClient(options: HerdrClientOptions = {}): HerdrClient
 type ExecuteCommand = (argv: string[]) => ReturnType<HerdrCommandExecutor>;
 
 function createOperations(execute: ExecuteCommand, timeoutMs: number): HerdrClient {
+  const run = async (argv: readonly string[]): Promise<string> => {
+    if (argv.length === 0) {
+      throw new HerdrError({ message: 'Herdr CLI run requires at least one argv token.' });
+    }
+
+    const command = [...argv];
+    return parseRunResponse(await execute(command), command, timeoutMs);
+  };
   const agent = {
     async get(target: string) {
       const argv = ['agent', 'get', target];
@@ -75,7 +84,7 @@ function createOperations(execute: ExecuteCommand, timeoutMs: number): HerdrClie
     },
   };
 
-  return { agent, pane, workspace, tab };
+  return { agent, pane, workspace, tab, run };
 }
 
 function buildReadArgv(

@@ -6,6 +6,7 @@ import {
 } from '../errors.js';
 import type { HerdrCommandResult } from './executor.js';
 import type { Agent, Pane, Tab, Workspace } from './types.js';
+/* oxlint-disable max-lines */
 
 interface RequiredField {
   readonly name: string;
@@ -112,6 +113,16 @@ export function parseReadResponse(
   // Read output is user/agent content. Herdr signals read failures on stderr with
   // a non-zero exit, so stdout is never an error envelope.
   return readText(result.stdout);
+}
+
+/** Runs an unmodeled CLI command without interpreting its stdout. */
+export function parseRunResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): string {
+  assertCommandSucceeded(result, 'cli.run', argv, timeoutMs);
+  return result.stdout;
 }
 
 function parseResourceResponse<T>(

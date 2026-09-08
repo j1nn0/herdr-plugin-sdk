@@ -1,4 +1,4 @@
-/** Public typed client API for the Herdr CLI. */
+/** Public client API for the Herdr CLI. */
 export { createHerdrClient } from './client.js';
 export type {
   Agent,

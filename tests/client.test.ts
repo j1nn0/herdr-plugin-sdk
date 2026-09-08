@@ -395,6 +395,135 @@ describe('Herdr client errors', () => {
   });
 });
 
+describe('Herdr client generic CLI commands', () => {
+  it('returns run stdout byte-for-byte', async () => {
+    const outputs = [
+      '  \tleading\n\ninterior blank\n🌍 你好，世界\n',
+      '{"type":"unmodeled","items":["🌍","漢字"]}',
+    ];
+
+    for (const stdout of outputs) {
+      const { executor } = fakeExecutor(() => result(stdout));
+      await expect(createHerdrClient({ executor, env: {} }).run(['plugin', 'list'])).resolves.toBe(
+        stdout,
+      );
+    }
+  });
+
+  it('does not classify an error-shaped stdout on a successful run', async () => {
+    const stdout = '{"error":{"code":"x","message":"y"},"id":"z"}';
+    const { executor } = fakeExecutor(() => result(stdout));
+
+    await expect(createHerdrClient({ executor, env: {} }).run(['plugin', 'list'])).resolves.toBe(
+      stdout,
+    );
+  });
+
+  it('uses the same binary resolution for run as typed operations', async () => {
+    const explicit = fakeExecutor(() => result(''));
+    await createHerdrClient({
+      binPath: '/explicit/herdr',
+      env: { HERDR_BIN_PATH: '/environment/herdr' },
+      executor: explicit.executor,
+    }).run(['plugin', 'list']);
+
+    const fromEnvironment = fakeExecutor(() => result(''));
+    await createHerdrClient({
+      env: { HERDR_BIN_PATH: '/environment/herdr' },
+      executor: fromEnvironment.executor,
+    }).run(['plugin', 'list']);
+
+    const defaultPath = fakeExecutor(() => result(''));
+    await createHerdrClient({ env: {}, executor: defaultPath.executor }).run(['plugin', 'list']);
+
+    expect(explicit.requests[0]?.binPath).toBe('/explicit/herdr');
+    expect(fromEnvironment.requests[0]?.binPath).toBe('/environment/herdr');
+    expect(defaultPath.requests[0]?.binPath).toBe('herdr');
+  });
+
+  it('passes every run argument as an unchanged argv token', async () => {
+    const argv = [
+      'plugin',
+      'pane',
+      'open',
+      '--plugin',
+      'example.plugin',
+      '--entrypoint',
+      'inbox',
+      '$(whoami)',
+      '; rm -rf /',
+      '"quoted argument"',
+      'spaces inside one token',
+    ];
+    const { executor, requests } = fakeExecutor(() => result(''));
+
+    await createHerdrClient({ executor, env: {} }).run(argv);
+
+    expect(requests[0]?.argv).toEqual(argv);
+    expect(requests[0]?.argv).toHaveLength(argv.length);
+  });
+
+  it('maps a structured run failure and preserves its operation metadata', async () => {
+    const argv = ['plugin', 'pane', 'open', '--plugin', 'no.such.plugin.xyz'];
+    const { executor } = fakeExecutor(() =>
+      result('', {
+        stderr:
+          '{"error":{"code":"plugin_not_found","message":"plugin not found"},"id":"cli:plugin"}',
+        exitCode: 1,
+      }),
+    );
+    const error = await capture(() => createHerdrClient({ executor, env: {} }).run(argv));
+
+    expect(error).toBeInstanceOf(HerdrCliError);
+    expect(isHerdrCliError(error, 'plugin_not_found')).toBe(true);
+    expect(error).toMatchObject({
+      operation: 'cli.run',
+      argv,
+      exitCode: 1,
+    });
+  });
+
+  it('maps an unstructured run failure to HerdrProcessError', async () => {
+    const argv = ['plugin', 'bogus'];
+    const stderr = 'unknown command: bogus\n';
+    const { executor } = fakeExecutor(() => result('', { stderr, exitCode: 2 }));
+    const error = await capture(() => createHerdrClient({ executor, env: {} }).run(argv));
+
+    expect(error).toBeInstanceOf(HerdrProcessError);
+    expect(error).toMatchObject({ operation: 'cli.run', argv, exitCode: 2, stderr });
+  });
+
+  it('maps a run spawn failure to HerdrProcessError', async () => {
+    const spawnError = new Error('ENOENT');
+    const argv = ['plugin', 'list'];
+    const { executor } = fakeExecutor(() => result('', { spawnError, exitCode: null }));
+    const error = await capture(() => createHerdrClient({ executor, env: {} }).run(argv));
+
+    expect(error).toBeInstanceOf(HerdrProcessError);
+    expect(error).toMatchObject({ operation: 'cli.run', argv, exitCode: null, cause: spawnError });
+  });
+
+  it('maps a run timeout and preserves the configured timeout', async () => {
+    const argv = ['plugin', 'list'];
+    const { executor } = fakeExecutor(() => result('', { timedOut: true, exitCode: null }));
+    const error = await capture(() =>
+      createHerdrClient({ executor, env: {}, timeoutMs: 1234 }).run(argv),
+    );
+
+    expect(error).toBeInstanceOf(HerdrTimeoutError);
+    expect(error).toMatchObject({ operation: 'cli.run', argv, timeoutMs: 1234 });
+  });
+
+  it('rejects an empty run argv before invoking the executor', async () => {
+    const { executor, requests } = fakeExecutor(() => result(''));
+    const error = await capture(() => createHerdrClient({ executor, env: {} }).run([]));
+
+    expect(error).toBeInstanceOf(HerdrError);
+    expect(error.message).toContain('at least one argv token');
+    expect(requests).toHaveLength(0);
+  });
+});
+
 async function capture(action: () => Promise<unknown>): Promise<Error> {
   try {
     await action();
