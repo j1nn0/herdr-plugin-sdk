@@ -54,7 +54,8 @@ jobs:
             dist/index.js \
             dist/index.d.ts \
             dist/testing/index.js \
-            dist/testing/index.d.ts; do
+            dist/testing/index.d.ts \
+            CHANGELOG.md; do
             if ! printf '%s\n' "$contents" | grep -Fqx "$required"; then
               echo "Missing packed file: $required" >&2
               exit 1
