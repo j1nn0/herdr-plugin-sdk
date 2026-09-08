@@ -91,6 +91,9 @@ jobs:
       - name: Install SDK dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build SDK
+        run: pnpm build
+
       - name: Verify examples against packed SDK
         shell: bash
         run: |
@@ -102,6 +105,13 @@ jobs:
           tarball="$(find "$temp_root" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           if [ -z "$tarball" ]; then
             echo 'pnpm pack did not create a tarball.' >&2
+            exit 1
+          fi
+
+          # pnpm pack does not build, so an unbuilt tree would ship a tarball
+          # without dist/ and surface as a confusing module-resolution error.
+          if ! tar -tzf "$tarball" | grep -Fqx 'package/dist/index.js'; then
+            echo 'Packed tarball is missing dist/; build the SDK before packing.' >&2
             exit 1
           fi
 
