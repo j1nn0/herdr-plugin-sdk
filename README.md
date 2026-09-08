@@ -1,24 +1,62 @@
 # @j1nn0/herdr-plugin-sdk
 
-> **Unofficial SDK:** This is an unofficial, community-maintained SDK. It is **not** an official Herdr SDK and is not affiliated with or endorsed by the Herdr project.
+Typed building blocks for Herdr Plugin v1.
 
-Herdr Plugin v1 itself remains executable-command based: a `herdr-plugin.toml` manifest plus commands Herdr launches as processes. This SDK does not change that model; it removes the repetitive integration code inside those commands.
+[![CI](https://github.com/j1nn0/herdr-plugin-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/j1nn0/herdr-plugin-sdk/actions/workflows/ci.yml) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node >= 22](https://img.shields.io/badge/node-%3E%3D22-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-## Compatibility and design
+> **Unofficial community project:** This project is not affiliated with or endorsed by the Herdr project.
 
-- Herdr `>= 0.8.2`
-- Node.js `>= 22`
-- CLI-first integration through the Herdr CLI
+Unofficial TypeScript tooling for Herdr Plugin v1 that removes repetitive runtime,
+CLI, error-handling, and testing boilerplate. Herdr's official Plugin API remains
+command-based: a `herdr-plugin.toml` manifest and ordinary executable commands
+that Herdr launches. This package is a convenience layer over that model.
 
-The client shells out to the Herdr CLI. By default it resolves the binary from `HERDR_BIN_PATH` (or uses `herdr` when that variable is not set); `createHerdrClient` also accepts an explicit `binPath`. This is the portable integration path. There is no socket client.
+```ts
+import { createHerdrClient, readPluginRuntime } from '@j1nn0/herdr-plugin-sdk';
 
-## Installation
+const runtime = readPluginRuntime();
+const workspaces = await createHerdrClient().workspace.list();
+console.log(`${runtime.pluginId}: ${workspaces.length} workspace(s)`);
+```
+
+- Typed Herdr CLI client for `agent`, `pane`, `workspace`, and `tab` operations.
+- Plugin runtime and context parsing from Herdr's environment.
+- Typed narrowing for supported plugin events.
+- Structured Herdr errors for environment, response, process, timeout, and CLI failures.
+- Generic `run()` for commands without a typed client method yet.
+- **Test Herdr plugins without running Herdr** with fixtures and an in-memory client.
+- Zero runtime dependencies in the SDK itself.
+
+## Quick Start
+
+Install the SDK in a TypeScript plugin:
 
 ```sh
 pnpm add @j1nn0/herdr-plugin-sdk
 ```
 
-npm and Yarn work too. The package has zero runtime dependencies.
+Herdr still launches ordinary executable commands declared in `herdr-plugin.toml`; the SDK does not change that command-based model.
+
+An event command can validate and narrow a payload, then apply the plugin's own policy:
+
+```ts
+import {
+  createHerdrClient,
+  isPaneAgentStatusChanged,
+  readPluginEvent,
+} from '@j1nn0/herdr-plugin-sdk';
+
+const event = readPluginEvent();
+if (event !== null && isPaneAgentStatusChanged(event)) {
+  if (event.data.agent_status === 'done') {
+    const output = await createHerdrClient().pane.read(event.data.pane_id, {
+      source: 'recent',
+      lines: 20,
+    });
+    console.log(output);
+  }
+}
+```
 
 ## Plugin runtime
 
@@ -130,7 +168,7 @@ const output = await herdr.run([
 
 ## Testing without Herdr
 
-The testing entrypoint provides an in-memory client and fixtures. Tests do not need a Herdr installation, a running Herdr server, or a socket.
+**You can test Herdr plugin code without a Herdr installation, running server, socket, or subprocess.** The testing entrypoint provides an in-memory client and fixtures:
 
 ```ts
 import { readPluginRuntime } from '@j1nn0/herdr-plugin-sdk';
@@ -153,6 +191,13 @@ console.log(agent.agent_status, runtime.pluginId);
 ```
 
 `createMockHerdrClient` records calls and can be configured with agent, pane, read, workspace, tab, and generic `run()` responses. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
+
+## Examples
+
+- [`examples/hello-plugin`](examples/hello-plugin) — an action that lists workspaces through the typed client.
+- [`examples/event-plugin`](examples/event-plugin) — an event hook that narrows status changes and applies an explicit `done` policy.
+
+Both examples are verified in CI against the packed package artifact.
 
 ## Errors
 
@@ -191,6 +236,14 @@ The corresponding missing-agent code is `agent_not_found`.
 - Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. A field whose contract the SDK already models is a different matter: if it is present with an invalid type, parsing throws rather than silently dropping it.
 - Commands run with a binary plus an argument vector; they never run through a shell.
 - Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API.
+
+## Compatibility and design
+
+- Herdr `>= 0.8.2`
+- Node.js `>= 22`
+- CLI-first integration through the Herdr CLI
+
+The client shells out to the Herdr CLI. By default it resolves the binary from `HERDR_BIN_PATH` (or uses `herdr` when that variable is not set); `createHerdrClient` also accepts an explicit `binPath`. This is the portable integration path. There is no socket client.
 
 ## v0.1 scope
 

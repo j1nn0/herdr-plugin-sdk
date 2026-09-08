@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "description": "Unofficial TypeScript SDK and toolkit for building, testing, and integrating Herdr plugins.",
   "keywords": [
+    "ai-agents",
     "cli",
     "herdr",
+    "herdr-plugin",
+    "herdr-sdk",
     "plugin",
+    "plugin-development",
     "sdk",
     "terminal",
     "typescript"
