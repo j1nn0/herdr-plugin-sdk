@@ -199,6 +199,12 @@ console.log(agent.agent_status, runtime.pluginId);
 
 Both examples are verified in CI against the packed package artifact.
 
+## Built with this SDK
+
+Released Herdr plugins that use this SDK, worth reading as practical examples:
+
+- [herdr-harvest](https://github.com/j1nn0/herdr-harvest) — captures an agent's terminal output when it finishes into a durable Result Inbox.
+
 ## Errors
 
 `HerdrError` is the base class. Runtime parsing uses `HerdrEnvError` when required runtime variables are missing or empty, or when context/event JSON is invalid.
