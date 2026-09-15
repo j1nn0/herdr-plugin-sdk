@@ -7,10 +7,23 @@ on:
         description: Version to release without a leading v (for example 0.1.1).
         required: true
         type: string
+      mode:
+        description: Release mode to publish a new package or recover a published package.
+        required: true
+        type: choice
+        options:
+          - release
+          - recover
+        default: release
+      release_sha:
+        description: Full commit SHA to recover; ignored in release mode.
+        required: false
+        type: string
 
 jobs:
   verify:
     name: Verify release
+    if: ${{ inputs.mode == 'release' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -187,9 +200,168 @@ jobs:
             esac
           done <<< "$contents"
 
+  recover-verify:
+    name: Verify release recovery
+    if: ${{ inputs.mode == 'recover' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      target_sha: ${{ steps.validate-release.outputs.target_sha }}
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      PACKAGE_NAME: '@j1nn0/herdr-plugin-sdk'
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Validate recovery target and release metadata
+        id: validate-release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node - "$RELEASE_VERSION" <<'NODE'
+          const version = process.argv[2] ?? '';
+          const semverPattern =
+            /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+          if (version.startsWith('v')) {
+            console.error('Release version must not have a leading v.');
+            process.exit(1);
+          }
+          if (!semverPattern.test(version)) {
+            console.error(`Release version is not valid SemVer: ${version}`);
+            process.exit(1);
+          }
+          NODE
+
+          if [ -z "$RELEASE_SHA" ]; then
+            echo 'release_sha is required in recover mode.' >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo 'release_sha must be a full 40-character hexadecimal commit SHA.' >&2
+            exit 1
+          fi
+
+          if ! git cat-file -e "${RELEASE_SHA}^{commit}" 2>/dev/null; then
+            echo "release_sha $RELEASE_SHA does not resolve to a commit." >&2
+            exit 1
+          fi
+          resolved_sha="$(git rev-parse --verify "${RELEASE_SHA}^{commit}")"
+          if ! git merge-base --is-ancestor "$resolved_sha" HEAD; then
+            echo "release_sha $RELEASE_SHA is not in the checked-out repository history." >&2
+            exit 1
+          fi
+
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$temp_dir"' EXIT
+          package_file="$temp_dir/package.json"
+          changelog_file="$temp_dir/CHANGELOG.md"
+          git show "${resolved_sha}:package.json" > "$package_file"
+          git show "${resolved_sha}:CHANGELOG.md" > "$changelog_file"
+
+          node - "$RELEASE_VERSION" "$PACKAGE_NAME" "$package_file" <<'NODE'
+          import fs from 'node:fs';
+
+          const [version, expectedName, packagePath] = process.argv.slice(2);
+          const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          if (packageJson.name !== expectedName) {
+            throw new Error(`package.json name ${packageJson.name} does not match ${expectedName}.`);
+          }
+          if (packageJson.version !== version) {
+            throw new Error(`package.json version ${packageJson.version} does not exactly match ${version}.`);
+          }
+          NODE
+
+          node - "$RELEASE_VERSION" "$changelog_file" <<'NODE'
+          import fs from 'node:fs';
+
+          const [version, changelogPath] = process.argv.slice(2);
+          const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const heading = new RegExp(`^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`);
+          const hasHeading = fs
+            .readFileSync(changelogPath, 'utf8')
+            .split(/\r?\n/)
+            .some((line) => heading.test(line));
+
+          if (!hasHeading) {
+            throw new Error(
+              `CHANGELOG.md has no dated section for ${version}: ## [${version}] - YYYY-MM-DD`,
+            );
+          }
+          NODE
+
+          echo "target_sha=$resolved_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm published npm version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          npm_view_output="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version --registry=https://registry.npmjs.org 2>&1)"
+          view_status=$?
+          set -e
+
+          if [ "$view_status" -ne 0 ] || [ "$npm_view_output" != "$RELEASE_VERSION" ]; then
+            echo "Could not confirm that ${PACKAGE_NAME}@${RELEASE_VERSION} is already published; refusing recovery." >&2
+            printf '%s\n' "$npm_view_output" >&2
+            exit 1
+          fi
+          echo "Confirmed ${PACKAGE_NAME}@${RELEASE_VERSION} is visible on npm."
+
+      - name: Confirm published package exports
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          exports_output="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" exports --json --registry=https://registry.npmjs.org 2>&1)"
+          view_status=$?
+          set -e
+
+          if [ "$view_status" -ne 0 ]; then
+            echo "Could not read npm exports metadata for ${PACKAGE_NAME}@${RELEASE_VERSION}; refusing recovery." >&2
+            printf '%s\n' "$exports_output" >&2
+            exit 1
+          fi
+
+          node - "$exports_output" <<'NODE'
+          const rawExports = process.argv[2] ?? '';
+          let exportsMap;
+          try {
+            exportsMap = JSON.parse(rawExports);
+          } catch {
+            throw new Error('npm exports metadata was not valid JSON.');
+          }
+
+          if (
+            exportsMap === null ||
+            typeof exportsMap !== 'object' ||
+            !Object.hasOwn(exportsMap, '.') ||
+            !Object.hasOwn(exportsMap, './testing')
+          ) {
+            throw new Error('Published package must expose both "." and "./testing" exports.');
+          }
+          console.log('Confirmed published package root and ./testing exports.');
+          NODE
+
   publish-npm:
     name: Publish to npm
     needs: verify
+    if: ${{ inputs.mode == 'release' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -294,7 +466,7 @@ jobs:
           set -euo pipefail
           last_output=''
 
-          for attempt in $(seq 1 10); do
+          for attempt in $(seq 1 30); do
             set +e
             last_output="$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version --registry=https://registry.npmjs.org 2>&1)"
             view_status=$?
@@ -305,29 +477,35 @@ jobs:
               exit 0
             fi
 
-            echo "npm visibility check attempt $attempt/10 did not confirm ${PACKAGE_NAME}@${RELEASE_VERSION}."
-            if [ "$attempt" -lt 10 ]; then
-              sleep 5
+            echo "npm visibility check attempt $attempt/30 did not confirm ${PACKAGE_NAME}@${RELEASE_VERSION}."
+            if [ "$attempt" -lt 30 ]; then
+              sleep 10
             fi
           done
 
-          echo "${PACKAGE_NAME}@${RELEASE_VERSION} was not visible on npm after 10 attempts." >&2
+          echo "${PACKAGE_NAME}@${RELEASE_VERSION} was not visible on npm after 30 attempts." >&2
           printf '%s\n' "$last_output" >&2
           exit 1
 
   finalize-github:
     name: Finalize GitHub release
-    needs: publish-npm
+    needs: [verify, publish-npm, recover-verify]
+    if: >-
+      ${{ always() &&
+          ((inputs.mode == 'release' && needs.verify.result == 'success' &&
+            needs['publish-npm'].result == 'success') ||
+           (inputs.mode == 'recover' && needs['recover-verify'].result == 'success')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       RELEASE_VERSION: ${{ inputs.version }}
+      TARGET_SHA: ${{ inputs.mode == 'recover' && needs['recover-verify'].outputs.target_sha || github.sha }}
     steps:
-      - name: Check out workflow commit
+      - name: Check out release target commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.mode == 'recover' && needs['recover-verify'].outputs.target_sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -340,9 +518,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_commit="$GITHUB_SHA"
+          expected_commit="$TARGET_SHA"
           if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
-            echo "The checked-out commit does not match the workflow run SHA." >&2
+            echo "The checked-out commit does not match the release target SHA." >&2
             exit 1
           fi
 
@@ -389,14 +567,16 @@ jobs:
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
           notes_file="$(mktemp)"
-          trap 'rm -f -- "$notes_file"' EXIT
+          changelog_file="$(mktemp)"
+          trap 'rm -f -- "$notes_file" "$changelog_file"' EXIT
+          git show "${TARGET_SHA}:CHANGELOG.md" > "$changelog_file"
 
-          node - "$RELEASE_VERSION" > "$notes_file" <<'NODE'
+          node - "$RELEASE_VERSION" "$changelog_file" > "$notes_file" <<'NODE'
           import fs from 'node:fs';
 
-          const version = process.argv[2] ?? '';
+          const [version, changelogPath] = process.argv.slice(2);
           const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const lines = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/);
+          const lines = fs.readFileSync(changelogPath, 'utf8').split(/\r?\n/);
           const heading = new RegExp(
             `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`,
           );
@@ -429,6 +609,33 @@ jobs:
           if [ ! -s "$notes_file" ]; then
             echo "Release notes for $tag are empty." >&2
             exit 1
+          fi
+
+          set +e
+          release_json="$(gh release view "$tag" --json tagName,isDraft,isPrerelease 2>&1)"
+          release_status=$?
+          set -e
+
+          if [ "$release_status" -eq 0 ]; then
+            node - "$tag" "$release_json" <<'NODE'
+          const [tag, rawRelease] = process.argv.slice(2);
+          let release;
+          try {
+            release = JSON.parse(rawRelease);
+          } catch {
+            throw new Error(`Existing GitHub release ${tag} returned invalid JSON.`);
+          }
+
+          if (
+            release.tagName !== tag ||
+            release.isDraft !== false ||
+            release.isPrerelease !== false
+          ) {
+            throw new Error(`Existing GitHub release ${tag} is not a published release for ${tag}.`);
+          }
+          console.log(`GitHub release ${tag} already exists and is correct; leaving it unchanged.`);
+          NODE
+            exit 0
           fi
 
           gh release create "$tag" --title "$tag" --notes-file "$notes_file" --verify-tag
