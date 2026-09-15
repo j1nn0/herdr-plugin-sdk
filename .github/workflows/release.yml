@@ -498,8 +498,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # A tag target whose workflow tree differs from main requires this permission; this job pushes only the tag plus the GitHub Release, never commits.
-      workflows: write
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       TARGET_SHA: ${{ inputs.mode == 'recover' && needs['recover-verify'].outputs.target_sha || github.sha }}
