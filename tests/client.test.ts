@@ -19,6 +19,14 @@ import {
   createHerdrClient,
   isHerdrCliError,
 } from '../src/index.js';
+import {
+  createAgentGetOutputFixture,
+  createCliErrorOutputFixture,
+  createPaneGetOutputFixture,
+  createTabListOutputFixture,
+  createWorkspaceListOutputFixture,
+  serializeCliOutput,
+} from '../src/testing/index.js';
 
 const agentPayload: Agent = {
   pane_id: 'w1G:p7',
@@ -50,7 +58,11 @@ const panePayload: Pane = {
   focused: true,
   agent_status: 'working',
   revision: 13,
+  agent: 'pi',
+  display_agent: 'pi',
   label: 'main',
+  title: 'SDK fixture pane',
+  cwd: '/workspace',
   scroll: {
     max_offset_from_bottom: 20,
     offset_from_bottom: 0,
@@ -93,13 +105,6 @@ function result(stdout = '', overrides: Partial<HerdrCommandResult> = {}): Herdr
   };
 }
 
-function envelope(type: string, payloadKey: string, payload: unknown): string {
-  return JSON.stringify({
-    id: `cli:test:${type}`,
-    result: { [payloadKey]: payload, type },
-  });
-}
-
 function responseFor(request: HerdrCommandRequest): HerdrCommandResult {
   const [namespace, command] = request.argv;
   if (command === 'read') {
@@ -107,15 +112,17 @@ function responseFor(request: HerdrCommandRequest): HerdrCommandResult {
   }
 
   if (namespace === 'agent') {
-    return result(envelope('agent_info', 'agent', agentPayload));
+    return result(serializeCliOutput(createAgentGetOutputFixture({ payload: agentPayload })));
   }
   if (namespace === 'pane') {
-    return result(envelope('pane_info', 'pane', panePayload));
+    return result(serializeCliOutput(createPaneGetOutputFixture({ payload: panePayload })));
   }
   if (namespace === 'workspace') {
-    return result(envelope('workspace_list', 'workspaces', [workspacePayload]));
+    return result(
+      serializeCliOutput(createWorkspaceListOutputFixture({ payload: workspacePayload })),
+    );
   }
-  return result(envelope('tab_list', 'tabs', [tabPayload]));
+  return result(serializeCliOutput(createTabListOutputFixture({ payload: tabPayload })));
 }
 
 function fakeExecutor(responder: (request: HerdrCommandRequest) => HerdrCommandResult): {
@@ -297,12 +304,69 @@ describe('Herdr client structured responses', () => {
   });
 });
 
+describe('Herdr client agent_session validation', () => {
+  it.each([
+    ['absent', undefined, false],
+    ['null', null, true],
+    [
+      'id',
+      { source: 'process', agent: 'pi', kind: 'id', value: 'session-7', extra: 'preserved' },
+      true,
+    ],
+    ['path', { source: 'file', agent: 'claude', kind: 'path', value: '/tmp/session' }, true],
+  ])('accepts %s for both resource types', async (_name, session, present) => {
+    for (const namespace of ['agent', 'pane'] as const) {
+      const payload = resourcePayloadWithSession(namespace, session, present);
+      const { executor } = fakeExecutor(() =>
+        result(serializeCliOutput(resourceOutputFixture(namespace, payload))),
+      );
+      const client = createHerdrClient({ executor, env: {} });
+
+      const resource = await getResource(client, namespace);
+      if (present) {
+        expect(resource).toMatchObject({ agent_session: session });
+      } else {
+        expect(resource).not.toHaveProperty('agent_session');
+      }
+    }
+  });
+
+  it.each([
+    ['string', 'invalid'],
+    ['number', 42],
+    ['array', []],
+    ['missing source', { agent: 'pi', kind: 'id', value: 'session-7' }],
+    ['missing agent', { source: 'process', kind: 'id', value: 'session-7' }],
+    ['missing kind', { source: 'process', agent: 'pi', value: 'session-7' }],
+    ['missing value', { source: 'process', agent: 'pi', kind: 'id' }],
+    ['source wrong type', { source: 42, agent: 'pi', kind: 'id', value: 'session-7' }],
+    ['agent wrong type', { source: 'process', agent: 42, kind: 'id', value: 'session-7' }],
+    ['kind wrong type', { source: 'process', agent: 'pi', kind: 42, value: 'session-7' }],
+    ['value wrong type', { source: 'process', agent: 'pi', kind: 'id', value: 42 }],
+    ['unsupported kind', { source: 'process', agent: 'pi', kind: 'name', value: 'session-7' }],
+  ])('rejects %s for both resource types', async (_name, session) => {
+    for (const namespace of ['agent', 'pane'] as const) {
+      const payload = resourcePayloadWithSession(namespace, session, true);
+      const { executor } = fakeExecutor(() =>
+        result(serializeCliOutput(resourceOutputFixture(namespace, payload))),
+      );
+      const client = createHerdrClient({ executor, env: {} });
+
+      await expect(getResource(client, namespace)).rejects.toBeInstanceOf(HerdrResponseError);
+    }
+  });
+});
+
 describe('Herdr client errors', () => {
   it('maps a structured CLI error and exposes its operation metadata', async () => {
     const { executor } = fakeExecutor(() =>
       result('', {
-        stderr:
-          '{"error":{"code":"pane_not_found","message":"pane missing"},"id":"cli:pane:get"}\n',
+        stderr: serializeCliOutput(
+          createCliErrorOutputFixture({
+            id: 'cli:pane:get',
+            message: 'pane missing',
+          }),
+        ),
         exitCode: 1,
       }),
     );
@@ -358,7 +422,9 @@ describe('Herdr client errors', () => {
   it('maps a missing required resource field to HerdrResponseError', async () => {
     const incomplete = { ...panePayload };
     delete (incomplete as { pane_id?: string }).pane_id;
-    const { executor } = fakeExecutor(() => result(envelope('pane_info', 'pane', incomplete)));
+    const output = createPaneGetOutputFixture({ payload: incomplete });
+    delete (output.result.pane as { pane_id?: string }).pane_id;
+    const { executor } = fakeExecutor(() => result(serializeCliOutput(output)));
     const error = await capture(() => createHerdrClient({ executor, env: {} }).pane.get('p1'));
 
     expect(error).toBeInstanceOf(HerdrResponseError);
@@ -532,4 +598,33 @@ async function capture(action: () => Promise<unknown>): Promise<Error> {
     return error as Error;
   }
   throw new Error('Expected action to reject.');
+}
+
+function resourcePayloadWithSession(
+  namespace: 'agent' | 'pane',
+  session: unknown,
+  present: boolean,
+): Agent | Pane {
+  const payload: Record<string, unknown> = {
+    ...(namespace === 'agent' ? agentPayload : panePayload),
+  };
+  if (present) {
+    payload.agent_session = session;
+  } else {
+    delete payload.agent_session;
+  }
+  return payload as Agent | Pane;
+}
+
+function resourceOutputFixture(namespace: 'agent' | 'pane', payload: Agent | Pane) {
+  return namespace === 'agent'
+    ? createAgentGetOutputFixture({ payload: payload as Agent })
+    : createPaneGetOutputFixture({ payload: payload as Pane });
+}
+
+function getResource(
+  client: ReturnType<typeof createHerdrClient>,
+  namespace: 'agent' | 'pane',
+): Promise<Agent | Pane> {
+  return namespace === 'agent' ? client.agent.get('w1G:p7') : client.pane.get('w1G:p7');
 }

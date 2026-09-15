@@ -5,6 +5,17 @@ const WORKSPACE_ID = 'w1G';
 const TAB_ID = `${WORKSPACE_ID}:t1`;
 const PANE_ID = `${WORKSPACE_ID}:p1`;
 
+type OutputFixtureOverrides<T> = {
+  readonly payload?: Partial<T>;
+  readonly id?: string;
+};
+
+type CliErrorFixtureOverrides = {
+  readonly code?: string;
+  readonly message?: string;
+  readonly id?: string;
+};
+
 /** Creates a complete agent payload with coherent fixture identifiers. */
 export function createAgentFixture(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -75,6 +86,83 @@ export function createTabFixture(overrides: Partial<Tab> = {}): Tab {
     focused: true,
     ...overrides,
   };
+}
+
+/** Builds a successful `agent get` CLI output envelope. */
+export function createAgentGetOutputFixture(overrides: OutputFixtureOverrides<Agent> = {}): {
+  readonly id: string;
+  readonly result: { readonly type: 'agent_info'; readonly agent: Agent };
+} {
+  return {
+    id: overrides.id ?? 'fixture:agent:get',
+    result: {
+      type: 'agent_info',
+      agent: createAgentFixture(overrides.payload),
+    },
+  };
+}
+
+/** Builds a successful `pane get` CLI output envelope. */
+export function createPaneGetOutputFixture(overrides: OutputFixtureOverrides<Pane> = {}): {
+  readonly id: string;
+  readonly result: { readonly type: 'pane_info'; readonly pane: Pane };
+} {
+  return {
+    id: overrides.id ?? 'fixture:pane:get',
+    result: {
+      type: 'pane_info',
+      pane: createPaneFixture(overrides.payload),
+    },
+  };
+}
+
+/** Builds a successful `workspace list` CLI output envelope. */
+export function createWorkspaceListOutputFixture(
+  overrides: OutputFixtureOverrides<Workspace> = {},
+): {
+  readonly id: string;
+  readonly result: { readonly type: 'workspace_list'; readonly workspaces: readonly Workspace[] };
+} {
+  return {
+    id: overrides.id ?? 'fixture:workspace:list',
+    result: {
+      type: 'workspace_list',
+      workspaces: [createWorkspaceFixture(overrides.payload)],
+    },
+  };
+}
+
+/** Builds a successful `tab list` CLI output envelope. */
+export function createTabListOutputFixture(overrides: OutputFixtureOverrides<Tab> = {}): {
+  readonly id: string;
+  readonly result: { readonly type: 'tab_list'; readonly tabs: readonly Tab[] };
+} {
+  return {
+    id: overrides.id ?? 'fixture:tab:list',
+    result: {
+      type: 'tab_list',
+      tabs: [createTabFixture(overrides.payload)],
+    },
+  };
+}
+
+/** Builds a structured CLI error output envelope. */
+export function createCliErrorOutputFixture(overrides: CliErrorFixtureOverrides = {}): {
+  readonly id: string;
+  readonly error: { readonly code: string; readonly message: string };
+} {
+  return {
+    id: overrides.id ?? 'fixture:error',
+    error: {
+      code: overrides.code ?? 'pane_not_found',
+      message: overrides.message ?? 'Pane "w1G:p404" not found.',
+    },
+  };
+}
+
+/** Serializes a CLI output envelope with the protocol trailing newline. */
+export function serializeCliOutput(envelope: unknown): string {
+  return `${JSON.stringify(envelope)}\n`;
 }
 
 /** Builds a plausible plugin-command environment. */

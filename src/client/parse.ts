@@ -38,6 +38,13 @@ const AGENT_FIELDS: readonly RequiredField[] = [
 
 const PANE_FIELDS = AGENT_FIELDS;
 
+const AGENT_SESSION_FIELDS: readonly RequiredField[] = [
+  required('source', isString),
+  required('agent', isString),
+  required('kind', isAgentSessionKind),
+  required('value', isString),
+];
+
 const WORKSPACE_FIELDS: readonly RequiredField[] = [
   required('workspace_id', isString),
   required('active_tab_id', isString),
@@ -139,6 +146,9 @@ function parseResourceResponse<T>(
   }
 
   validateRequiredFields(payload, operation, argv, `result.${payloadKey}`, fields);
+  if (payloadKey === 'agent' || payloadKey === 'pane') {
+    validateAgentSession(payload, operation, argv, `result.${payloadKey}`);
+  }
   return payload as T;
 }
 
@@ -267,6 +277,29 @@ function validateRequiredFields(
   }
 }
 
+function validateAgentSession(
+  payload: Record<string, unknown>,
+  operation: string,
+  argv: readonly string[],
+  path: string,
+): void {
+  if (!Object.hasOwn(payload, 'agent_session') || payload.agent_session === null) {
+    return;
+  }
+
+  if (!isPlainObject(payload.agent_session)) {
+    throw responseError(operation, argv, `${path}.agent_session is missing or invalid.`);
+  }
+
+  validateRequiredFields(
+    payload.agent_session,
+    operation,
+    argv,
+    `${path}.agent_session`,
+    AGENT_SESSION_FIELDS,
+  );
+}
+
 function responseError(
   operation: string,
   argv: readonly string[],
@@ -308,4 +341,8 @@ function isAgentStatus(value: unknown): boolean {
     value === 'done' ||
     value === 'unknown'
   );
+}
+
+function isAgentSessionKind(value: unknown): boolean {
+  return value === 'id' || value === 'path';
 }

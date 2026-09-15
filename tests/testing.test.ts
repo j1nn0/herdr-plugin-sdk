@@ -19,14 +19,20 @@ import {
   readPluginRuntime,
 } from '../src/index.js';
 import {
+  createAgentGetOutputFixture,
   createAgentFixture,
+  createCliErrorOutputFixture,
+  createPaneGetOutputFixture,
   createPaneFixture,
   createPluginContextFixture,
   createPluginEnvFixture,
   createPluginEventFixture,
+  createTabListOutputFixture,
   createTabFixture,
+  createWorkspaceListOutputFixture,
   createWorkspaceFixture,
   createMockHerdrClient,
+  serializeCliOutput,
   type MockHerdrCall,
   type MockHerdrClientSetup,
 } from '../src/testing/index.js';
@@ -227,6 +233,50 @@ describe('mock Herdr client', () => {
 });
 
 describe('testing fixtures', () => {
+  it('creates protocol-valid success and error output envelopes', () => {
+    expect(createAgentGetOutputFixture()).toEqual({
+      id: 'fixture:agent:get',
+      result: { type: 'agent_info', agent: createAgentFixture() },
+    });
+    expect(createPaneGetOutputFixture()).toEqual({
+      id: 'fixture:pane:get',
+      result: { type: 'pane_info', pane: createPaneFixture() },
+    });
+    expect(createWorkspaceListOutputFixture()).toEqual({
+      id: 'fixture:workspace:list',
+      result: { type: 'workspace_list', workspaces: [createWorkspaceFixture()] },
+    });
+    expect(createTabListOutputFixture()).toEqual({
+      id: 'fixture:tab:list',
+      result: { type: 'tab_list', tabs: [createTabFixture()] },
+    });
+    expect(createCliErrorOutputFixture()).toEqual({
+      id: 'fixture:error',
+      error: { code: 'pane_not_found', message: 'Pane "w1G:p404" not found.' },
+    });
+  });
+
+  it('supports payload and identifier overrides without mutating them', () => {
+    const payload = { title: 'overridden', extra_field: { preserved: true } };
+    const error = { code: 'agent_not_found', message: 'Agent "w1G:p404" not found.' };
+
+    expect(createAgentGetOutputFixture({ id: 'custom-id', payload })).toEqual({
+      id: 'custom-id',
+      result: { type: 'agent_info', agent: { ...createAgentFixture(), ...payload } },
+    });
+    expect(createCliErrorOutputFixture({ id: 'error-id', ...error })).toEqual({
+      id: 'error-id',
+      error,
+    });
+    expect(payload).toEqual({ title: 'overridden', extra_field: { preserved: true } });
+    expect(error).toEqual({ code: 'agent_not_found', message: 'Agent "w1G:p404" not found.' });
+  });
+
+  it('serializes output envelopes with exactly one protocol trailing newline', () => {
+    const envelope = createTabListOutputFixture({ id: 'tab-output' });
+    expect(serializeCliOutput(envelope)).toBe(`${JSON.stringify(envelope)}\n`);
+  });
+
   it('creates a valid default environment with an unknown invocation', () => {
     const env = createPluginEnvFixture();
     const runtime = readPluginRuntime(env);
@@ -294,6 +344,29 @@ describe('testing fixtures', () => {
     await expect(client.tab.list()).resolves.toEqual([resources.tab]);
   });
 
+  it('consumes serialized success and stderr error fixtures through the executor seam', async () => {
+    const success = createAgentGetOutputFixture({ payload: { pane_id: 'agent-1' } });
+    const successClient = createHerdrClient({
+      env: {},
+      executor: () => Promise.resolve(commandResult(serializeCliOutput(success))),
+    });
+    await expect(successClient.agent.get('agent-1')).resolves.toEqual(success.result.agent);
+
+    const error = createCliErrorOutputFixture({
+      code: 'agent_not_found',
+      message: 'Agent "agent-404" not found.',
+    });
+    const errorClient = createHerdrClient({
+      env: {},
+      executor: () =>
+        Promise.resolve(commandResult('', { stderr: serializeCliOutput(error), exitCode: 1 })),
+    });
+    await expect(errorClient.agent.get('agent-404')).rejects.toMatchObject({
+      code: 'agent_not_found',
+      exitCode: 1,
+    });
+  });
+
   it('does not mutate any fixture override object', () => {
     const agentOverrides: Partial<Agent> = { title: 'override agent' };
     const paneOverrides: Partial<Pane> = { label: 'override pane' };
@@ -346,38 +419,45 @@ function fixtureExecutor(resources: {
   return (request) => {
     const [namespace, command] = request.argv;
     if (namespace === 'agent' && command === 'get') {
-      return Promise.resolve(commandResult(envelope('agent_info', 'agent', resources.agent)));
+      return Promise.resolve(
+        commandResult(
+          serializeCliOutput(createAgentGetOutputFixture({ payload: resources.agent })),
+        ),
+      );
     }
     if (namespace === 'pane' && command === 'get') {
-      return Promise.resolve(commandResult(envelope('pane_info', 'pane', resources.pane)));
+      return Promise.resolve(
+        commandResult(serializeCliOutput(createPaneGetOutputFixture({ payload: resources.pane }))),
+      );
     }
     if (namespace === 'workspace' && command === 'list') {
       return Promise.resolve(
-        commandResult(envelope('workspace_list', 'workspaces', [resources.workspace])),
+        commandResult(
+          serializeCliOutput(createWorkspaceListOutputFixture({ payload: resources.workspace })),
+        ),
       );
     }
     if (namespace === 'tab' && command === 'list') {
-      return Promise.resolve(commandResult(envelope('tab_list', 'tabs', [resources.tab])));
+      return Promise.resolve(
+        commandResult(serializeCliOutput(createTabListOutputFixture({ payload: resources.tab }))),
+      );
     }
     return Promise.reject(new Error(`Unexpected fixture command: ${request.argv.join(' ')}`));
   };
 }
 
-function commandResult(stdout = ''): HerdrCommandResult {
+function commandResult(
+  stdout = '',
+  overrides: Partial<HerdrCommandResult> = {},
+): HerdrCommandResult {
   return {
     stdout,
     stderr: '',
     exitCode: 0,
     signal: null,
     timedOut: false,
+    ...overrides,
   };
-}
-
-function envelope(type: string, payloadKey: string, payload: unknown): string {
-  return JSON.stringify({
-    id: 'fixture:test',
-    result: { [payloadKey]: payload, type },
-  });
 }
 
 async function capture(action: () => Promise<unknown>): Promise<unknown> {

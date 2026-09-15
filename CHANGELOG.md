@@ -8,6 +8,16 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-15
+
+### Added
+
+- Wire-payload fixtures and CLI output serialization helpers under the `testing` entrypoint.
+
+### Changed
+
+- Runtime validation now checks the optional `agent_session` contract in agent and pane responses.
+
 ## [0.1.0] - 2026-09-08
 
 ### Added
@@ -24,5 +34,6 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 - Compatibility with Herdr `>= 0.8.2` and Node.js `>= 22`.
 - The `hello-plugin` and `event-plugin` examples.
 
-[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/j1nn0/herdr-plugin-sdk/releases/tag/v0.1.0

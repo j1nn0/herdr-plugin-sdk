@@ -143,6 +143,11 @@ const tabs = await client.tab.list({ workspaceId: 'workspace' });
 console.log(agent, agentText, pane, paneText, workspaces, tabs);
 ```
 
+Herdr silently clamps `--lines` to approximately 1000 rows on the verified
+Herdr releases. This upstream behavior is undocumented; the SDK intentionally
+does not reject or normalize larger non-negative integer values, and exposes no
+SDK clamp constant.
+
 The client also supports `timeoutMs`, `maxBuffer`, a custom `env`, and an executor seam through `HerdrClientOptions`.
 
 ## Generic CLI commands
@@ -192,6 +197,30 @@ console.log(agent.agent_status, runtime.pluginId);
 
 `createMockHerdrClient` records calls and can be configured with agent, pane, read, workspace, tab, and generic `run()` responses. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
 
+For protocol-shaped client tests, the testing entrypoint also provides output
+envelopes and a serializer for the CLI trailing newline:
+
+```ts
+import { createHerdrClient } from '@j1nn0/herdr-plugin-sdk';
+import {
+  createAgentGetOutputFixture,
+  serializeCliOutput,
+} from '@j1nn0/herdr-plugin-sdk/testing';
+
+const client = createHerdrClient({
+  env: {},
+  executor: async () => ({
+    stdout: serializeCliOutput(createAgentGetOutputFixture()),
+    stderr: '',
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+  }),
+});
+
+const agent = await client.agent.get('w1G:p1');
+```
+
 ## Examples
 
 - [`examples/hello-plugin`](examples/hello-plugin) — an action that lists workspaces through the typed client.
@@ -239,7 +268,9 @@ The corresponding missing-agent code is `agent_not_found`.
 
 - Read output is returned exactly as Herdr produced it and is never parsed as JSON.
 - Successful stdout from `run()` is returned unchanged and is never parsed.
-- Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. A field whose contract the SDK already models is a different matter: if it is present with an invalid type, parsing throws rather than silently dropping it.
+- Typed resource responses validate the required top-level fields for each operation: identifiers, booleans, integer counters/revisions, and the modeled `agent_status` values.
+- When present and non-null, `agent_session` is validated as an object with string `source`, `agent`, and `value` fields plus `kind` set to `id` or `path`. It may contain additional nested fields.
+- Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. Optional TypeScript-only projections such as `name`, `scroll`, and `state_labels` are not runtime-validated; invalid values for the explicitly validated contracts throw `HerdrResponseError`.
 - Commands run with a binary plus an argument vector; they never run through a shell.
 - Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API.
 
