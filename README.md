@@ -88,7 +88,7 @@ switch (invocation.kind) {
 
 ## Context and events
 
-`readPluginContext` reads `HERDR_PLUGIN_CONTEXT_JSON`, while `readPluginEvent` reads the optional `HERDR_PLUGIN_EVENT_JSON` envelope. `isPaneAgentStatusChanged` narrows an event after its required fields have been checked.
+`readPluginContext` reads `HERDR_PLUGIN_CONTEXT_JSON`, while `readPluginEvent` reads the optional `HERDR_PLUGIN_EVENT_JSON` envelope. `isPaneAgentStatusChanged` narrows an event after its required fields have been checked. Explicit `null` on optional context fields is treated as absent.
 
 Only an event-hook command receives `HERDR_PLUGIN_EVENT_JSON`, so `readPluginEvent` returns `null` when the variable is absent. A variable that is present but empty is a broken runtime boundary rather than "not an event hook", and throws `HerdrEnvError`.
 
@@ -148,7 +148,7 @@ Herdr releases. This upstream behavior is undocumented; the SDK intentionally
 does not reject or normalize larger non-negative integer values, and exposes no
 SDK clamp constant.
 
-The client also supports `timeoutMs`, `maxBuffer`, a custom `env`, and an executor seam through `HerdrClientOptions`.
+The client also supports `timeoutMs`, `maxBuffer`, a custom `env`, and an executor seam through `HerdrClientOptions`. Typed operations use a 10,000 ms SDK process timeout by default; `run()` defaults to `0` (no SDK process timeout). An explicit `timeoutMs` applies to both. This is separate from Herdr's own `--timeout` for wait commands; when Herdr reports a wait timeout, it surfaces as `HerdrCliError` with code `timeout`.
 
 ## Generic CLI commands
 
@@ -169,7 +169,7 @@ const output = await herdr.run([
 ]);
 ```
 
-`run()` uses the same binary resolution, no-shell execution, buffer limits, timeout, and structured error handling as typed methods. Successful stdout is returned unchanged. Prefer a typed method when the SDK provides one; use `run()` otherwise.
+`run()` uses the same binary resolution, no-shell execution, buffer limits, and structured error handling as typed methods. Its SDK process timeout defaults to `0` (no timeout); an explicit `timeoutMs` on `createHerdrClient` applies to `run()` as well as typed operations. Successful stdout is returned unchanged. Prefer a typed method when the SDK provides one; use `run()` otherwise.
 
 ## Testing without Herdr
 
@@ -242,8 +242,10 @@ The four command/client error classes are:
 
 - `HerdrCliError` is thrown when Herdr exits with a structured CLI error response.
 - `HerdrResponseError` is thrown when a successful command returns a response with an invalid shape or missing required fields.
-- `HerdrProcessError` is thrown for a spawn failure or an unstructured non-zero process exit.
+- `HerdrProcessError` is thrown for a spawn failure, an output-buffer overflow, or an unstructured non-zero process exit.
 - `HerdrTimeoutError` is thrown when a command exceeds its configured timeout.
+
+An output-buffer overflow is exposed through `HerdrProcessError.cause`, whose `code` is `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`.
 
 A missing agent or pane always throws `HerdrCliError`; it does not return `null`. Use `isHerdrCliError` to handle a stable protocol code:
 
@@ -272,7 +274,7 @@ The corresponding missing-agent code is `agent_not_found`.
 - When present and non-null, `agent_session` is validated as an object with string `source`, `agent`, and `value` fields plus `kind` set to `id` or `path`. It may contain additional nested fields.
 - Unknown fields in Herdr responses, contexts, and events are preserved and never cause failures. Optional TypeScript-only projections such as `name`, `scroll`, and `state_labels` are not runtime-validated; invalid values for the explicitly validated contracts throw `HerdrResponseError`.
 - Commands run with a binary plus an argument vector; they never run through a shell.
-- Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API.
+- Errors never carry environment contents. `HerdrProcessError` may include only the truncated `stderr` diagnostic described by its API; an output-buffer overflow is identified by `cause.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'` and does not copy stdout into the error.
 
 ## Compatibility and design
 

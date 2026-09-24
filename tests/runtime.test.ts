@@ -128,6 +128,11 @@ describe('plugin context', () => {
     expect((context as Record<string, unknown>).future_field).toEqual({ enabled: true });
   });
 
+  it('normalizes null optional context fields', () => {
+    const payload = { workspace_id: null, focused_pane_status: null, worktree: null };
+    expect(readPluginContext({ HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(payload) })).toEqual({});
+  });
+
   it('accepts an empty object', () => {
     expect(readPluginContext({ HERDR_PLUGIN_CONTEXT_JSON: '{}' })).toEqual({});
   });
@@ -137,7 +142,7 @@ describe('plugin context', () => {
     ['focused_pane_status', { focused_pane_status: 'future-invalid-value' }],
     ['worktree', { worktree: [] }],
     ['worktree', { worktree: 'x' }],
-    ['worktree.repo_name', { worktree: { repo_name: 123 } }],
+    ['worktree.repo_name', { worktree: { repo_name: null } }],
     ['worktree.is_linked_worktree', { worktree: { is_linked_worktree: 'yes' } }],
   ])('rejects malformed known context field %s', (field, payload) => {
     let error: HerdrEnvError | undefined;

@@ -182,6 +182,34 @@ describe('Herdr client argv construction', () => {
     expect(requests[1]?.argv).not.toContain('agent read');
   });
 
+  it('uses path-specific default timeouts and forwards an explicit timeout', async () => {
+    const typedDefault = fakeExecutor(responseFor);
+    await createHerdrClient({ executor: typedDefault.executor, env: {} }).workspace.list();
+
+    const runDefault = fakeExecutor(() => result(''));
+    await createHerdrClient({ executor: runDefault.executor, env: {} }).run(['plugin', 'list']);
+
+    expect(typedDefault.requests[0]?.timeoutMs).toBe(10_000);
+    expect(runDefault.requests[0]?.timeoutMs).toBe(0);
+
+    const typedExplicit = fakeExecutor(responseFor);
+    await createHerdrClient({
+      executor: typedExplicit.executor,
+      env: {},
+      timeoutMs: 1234,
+    }).workspace.list();
+
+    const runExplicit = fakeExecutor(() => result(''));
+    await createHerdrClient({
+      executor: runExplicit.executor,
+      env: {},
+      timeoutMs: 1234,
+    }).run(['plugin', 'list']);
+
+    expect(typedExplicit.requests[0]?.timeoutMs).toBe(1234);
+    expect(runExplicit.requests[0]?.timeoutMs).toBe(1234);
+  });
+
   it.each([
     ['none', {}],
     ['source', { source: 'visible' }],
@@ -399,6 +427,20 @@ describe('Herdr client errors', () => {
 
     expect(error).toBeInstanceOf(HerdrProcessError);
     expect(error).toMatchObject({ operation: 'agent.get', exitCode: null, cause: spawnError });
+  });
+
+  it('preserves an output-buffer overflow as the process error cause', async () => {
+    const spawnError = Object.assign(new Error('maxBuffer exceeded'), {
+      code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+    });
+    const { executor } = fakeExecutor(() => result('', { spawnError, exitCode: null }));
+    const error = await capture(() => createHerdrClient({ executor, env: {} }).agent.get('p1'));
+
+    expect(error).toBeInstanceOf(HerdrProcessError);
+    expect((error as HerdrProcessError).cause).toBe(spawnError);
+    expect((error as HerdrProcessError).cause).toMatchObject({
+      code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+    });
   });
 
   it('maps a timeout and preserves the configured timeout', async () => {

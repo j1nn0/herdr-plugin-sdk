@@ -18,11 +18,13 @@ const DEFAULT_MAX_BUFFER = 32 * 1024 * 1024;
 export function createHerdrClient(options: HerdrClientOptions = {}): HerdrClient {
   const env = options.env ?? process.env;
   const binPath = options.binPath ?? env.HERDR_BIN_PATH ?? 'herdr';
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const typedTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   const executor: HerdrCommandExecutor = options.executor ?? createExecFileExecutor();
 
-  const execute = (argv: string[]) =>
+  const runTimeoutMs = options.timeoutMs ?? 0;
+
+  const execute = (argv: string[], timeoutMs: number) =>
     executor({
       binPath,
       argv,
@@ -31,46 +33,69 @@ export function createHerdrClient(options: HerdrClientOptions = {}): HerdrClient
       env,
     });
 
-  return createOperations(execute, timeoutMs);
+  return createOperations(execute, typedTimeoutMs, runTimeoutMs);
 }
 
-type ExecuteCommand = (argv: string[]) => ReturnType<HerdrCommandExecutor>;
+type ExecuteCommand = (argv: string[], timeoutMs: number) => ReturnType<HerdrCommandExecutor>;
 
-function createOperations(execute: ExecuteCommand, timeoutMs: number): HerdrClient {
+function createOperations(
+  execute: ExecuteCommand,
+  typedTimeoutMs: number,
+  runTimeoutMs: number,
+): HerdrClient {
   const run = async (argv: readonly string[]): Promise<string> => {
     if (argv.length === 0) {
       throw new HerdrError({ message: 'Herdr CLI run requires at least one argv token.' });
     }
 
     const command = [...argv];
-    return parseRunResponse(await execute(command), command, timeoutMs);
+    return parseRunResponse(await execute(command, runTimeoutMs), command, runTimeoutMs);
   };
+
+  return {
+    ...createResourceOperations(execute, typedTimeoutMs),
+    ...createListOperations(execute, typedTimeoutMs),
+    run,
+  };
+}
+
+function createResourceOperations(
+  execute: ExecuteCommand,
+  timeoutMs: number,
+): Pick<HerdrClient, 'agent' | 'pane'> {
   const agent = {
     async get(target: string) {
       const argv = ['agent', 'get', target];
-      return parseAgentResponse(await execute(argv), argv, timeoutMs);
+      return parseAgentResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
     async read(target: string, readOptions?: ReadOptions) {
       const argv = buildReadArgv('agent', target, readOptions);
-      return parseReadResponse(await execute(argv), 'agent.read', argv, timeoutMs);
+      return parseReadResponse(await execute(argv, timeoutMs), 'agent.read', argv, timeoutMs);
     },
   };
 
   const pane = {
     async get(paneId: string) {
       const argv = ['pane', 'get', paneId];
-      return parsePaneResponse(await execute(argv), argv, timeoutMs);
+      return parsePaneResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
     async read(paneId: string, readOptions?: ReadOptions) {
       const argv = buildReadArgv('pane', paneId, readOptions);
-      return parseReadResponse(await execute(argv), 'pane.read', argv, timeoutMs);
+      return parseReadResponse(await execute(argv, timeoutMs), 'pane.read', argv, timeoutMs);
     },
   };
 
+  return { agent, pane };
+}
+
+function createListOperations(
+  execute: ExecuteCommand,
+  timeoutMs: number,
+): Pick<HerdrClient, 'workspace' | 'tab'> {
   const workspace = {
     async list() {
       const argv = ['workspace', 'list'];
-      return parseWorkspaceResponse(await execute(argv), argv, timeoutMs);
+      return parseWorkspaceResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
   };
 
@@ -80,11 +105,11 @@ function createOperations(execute: ExecuteCommand, timeoutMs: number): HerdrClie
       if (listOptions?.workspaceId !== undefined) {
         argv.push('--workspace', listOptions.workspaceId);
       }
-      return parseTabResponse(await execute(argv), argv, timeoutMs);
+      return parseTabResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
   };
 
-  return { agent, pane, workspace, tab, run };
+  return { workspace, tab };
 }
 
 function buildReadArgv(

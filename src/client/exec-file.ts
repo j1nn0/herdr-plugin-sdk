@@ -8,7 +8,7 @@ interface ChildProcessFailure {
   readonly syscall?: string;
 }
 
-const NON_SPAWN_ERROR_CODES = new Set(['ERR_CHILD_PROCESS_STDIO_MAXBUFFER', 'ETIMEDOUT']);
+const NON_SPAWN_ERROR_CODES = new Set(['ETIMEDOUT']);
 
 /** Creates the default executor without invoking a shell. */
 export function createExecFileExecutor(): HerdrCommandExecutor {

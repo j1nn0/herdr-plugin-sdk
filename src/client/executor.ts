@@ -2,6 +2,7 @@
 export interface HerdrCommandRequest {
   readonly binPath: string;
   readonly argv: readonly string[];
+  /** SDK process timeout in milliseconds; 0 disables the SDK-managed timeout. */
   readonly timeoutMs: number;
   readonly maxBuffer: number;
   readonly env: NodeJS.ProcessEnv;
@@ -14,6 +15,7 @@ export interface HerdrCommandResult {
   readonly exitCode: number | null;
   readonly signal: string | null;
   readonly timedOut: boolean;
+  /** Underlying spawn or execution error, when one was reported. */
   readonly spawnError?: unknown;
 }
 

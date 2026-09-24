@@ -53,20 +53,28 @@ function parseJson(raw: string, variable: string): unknown {
 
 function validateContext(value: Record<string, unknown>): PluginContext {
   for (const field of CONTEXT_STRING_FIELDS) {
-    if (field in value && typeof value[field] !== 'string') {
+    if (value[field] === null) {
+      delete value[field];
+    } else if (field in value && typeof value[field] !== 'string') {
       throw invalidContextField(field, 'must be a string');
     }
   }
 
-  if ('focused_pane_status' in value && !isAgentStatus(value.focused_pane_status)) {
+  if (value.focused_pane_status === null) {
+    delete value.focused_pane_status;
+  } else if ('focused_pane_status' in value && !isAgentStatus(value.focused_pane_status)) {
     throw invalidContextField('focused_pane_status', 'must be a valid agent status');
   }
 
   if ('worktree' in value) {
-    if (!isPlainObject(value.worktree)) {
-      throw invalidContextField('worktree', 'must be a plain object');
+    if (value.worktree === null) {
+      delete value.worktree;
+    } else {
+      if (!isPlainObject(value.worktree)) {
+        throw invalidContextField('worktree', 'must be a plain object');
+      }
+      validateWorktree(value.worktree);
     }
-    validateWorktree(value.worktree);
   }
 
   return value as PluginContext;

@@ -8,6 +8,12 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+### Fixed
+
+- Typed CLI operations retain a 10,000 ms default SDK process timeout while generic `run()` defaults to no SDK process timeout; an explicit client timeout applies to both.
+- Explicit `null` on optional context fields is normalized to absence, while null values inside a worktree object remain invalid.
+- Child-process output-buffer overflows surface as `HerdrProcessError` with the underlying error preserved as `cause`.
+
 ## [0.2.0] - 2026-09-15
 
 ### Added
