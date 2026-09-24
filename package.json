@@ -1,6 +1,6 @@
 {
   "name": "@j1nn0/herdr-plugin-sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unofficial TypeScript SDK and toolkit for building, testing, and integrating Herdr plugins.",
   "keywords": [
     "ai-agents",

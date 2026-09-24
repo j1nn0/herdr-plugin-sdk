@@ -8,6 +8,8 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-24
+
 ### Fixed
 
 - Typed CLI operations retain a 10,000 ms default SDK process timeout while generic `run()` defaults to no SDK process timeout; an explicit client timeout applies to both.
@@ -40,6 +42,7 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 - Compatibility with Herdr `>= 0.8.2` and Node.js `>= 22`.
 - The `hello-plugin` and `event-plugin` examples.
 
-[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/j1nn0/herdr-plugin-sdk/releases/tag/v0.1.0
