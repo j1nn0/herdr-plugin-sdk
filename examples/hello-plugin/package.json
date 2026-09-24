@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@j1nn0/herdr-plugin-sdk": "^0.1.0"
+    "@j1nn0/herdr-plugin-sdk": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

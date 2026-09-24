@@ -230,7 +230,7 @@ Both examples are verified in CI against the packed package artifact.
 
 ## Built with this SDK
 
-Released Herdr plugins that use this SDK, worth reading as practical examples:
+Released Herdr plugin that uses this SDK, worth reading as a practical example:
 
 - [herdr-harvest](https://github.com/j1nn0/herdr-harvest) — captures an agent's terminal output when it finishes into a durable Result Inbox.
 
@@ -282,11 +282,11 @@ The corresponding missing-agent code is `agent_not_found`.
 
 The client shells out to the Herdr CLI. By default it resolves the binary from `HERDR_BIN_PATH` (or uses `herdr` when that variable is not set); `createHerdrClient` also accepts an explicit `binPath`. This is the portable integration path. There is no socket client.
 
-## v0.1 scope
+## Scope
 
-v0.1 provides runtime/environment parsing, context and event parsing, typed and generic CLI operations, safe error types, and testing fixtures/mock clients. It is intentionally a small CLI-first SDK for executable Herdr Plugin v1 commands.
+The SDK provides runtime/environment parsing, context and event parsing, typed and generic CLI operations, safe error types, and testing fixtures/mock clients. It is intentionally a small CLI-first SDK for executable Herdr Plugin v1 commands.
 
-### Not included in v0.1
+### Not included
 
 - Raw socket client
 - Event subscriptions
