@@ -8,6 +8,16 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+### Added
+
+- Typed `plugin.pane.open()` / `close()`, `pane.list()` / `reportMetadata()`, `tab.rename()`, and `workspace.rename()` operations.
+- Testing output fixtures, `createRecordingExecutor()`, and expanded mock-client coverage for the new operations.
+- The `examples/plugin-pane-widget` plugin pane lifecycle example.
+
+### Changed
+
+- `HerdrClient` now requires the new operation groups, which is source-breaking for manual client implementers. Clients created by `createHerdrClient()` and `createMockHerdrClient()` need no migration.
+
 ## [0.2.1] - 2026-09-24
 
 ### Fixed

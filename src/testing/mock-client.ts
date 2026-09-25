@@ -1,6 +1,17 @@
 /** Configurable in-memory Herdr client for plugin unit tests. */
-import { HerdrCliError } from '../errors.js';
-import type { Agent, HerdrClient, Pane, ReadOptions, Tab, Workspace } from '../client/types.js';
+import { HerdrCliError, HerdrError } from '../errors.js';
+import type {
+  Agent,
+  HerdrClient,
+  Pane,
+  PaneReportMetadataOptions,
+  PluginPaneOpenOptions,
+  ReadOptions,
+  Tab,
+  Workspace,
+} from '../client/types.js';
+
+/* oxlint-disable max-lines */
 
 /** A recorded operation made through a mock Herdr client. */
 export interface MockHerdrCall {
@@ -8,9 +19,15 @@ export interface MockHerdrCall {
     | 'agent.get'
     | 'agent.read'
     | 'pane.get'
+    | 'pane.list'
     | 'pane.read'
-    | 'workspace.list'
+    | 'pane.reportMetadata'
+    | 'plugin.pane.close'
+    | 'plugin.pane.open'
     | 'tab.list'
+    | 'tab.rename'
+    | 'workspace.list'
+    | 'workspace.rename'
     | 'cli.run';
   readonly target: string | null;
   readonly options: Readonly<Record<string, unknown>> | null;
@@ -24,8 +41,14 @@ export interface MockHerdrClientSetup {
   readonly panes?: Readonly<Record<string, Pane | Error>>;
   readonly agentReads?: Readonly<Record<string, string | Error>>;
   readonly paneReads?: Readonly<Record<string, string | Error>>;
+  readonly paneList?: readonly Pane[] | Error;
+  readonly pluginPaneOpen?: Pane | Error;
+  readonly pluginPaneCloseErrors?: Readonly<Record<string, Error>>;
+  readonly paneReportMetadataErrors?: Readonly<Record<string, Error>>;
   readonly workspaces?: readonly Workspace[] | Error;
+  readonly workspaceRenames?: Readonly<Record<string, Workspace | Error>>;
   readonly tabs?: readonly Tab[] | Error;
+  readonly tabRenames?: Readonly<Record<string, Tab | Error>>;
   /** Response for an unmodeled CLI command. */
   readonly run?: (argv: readonly string[]) => string | Error;
 }
@@ -40,11 +63,10 @@ export interface MockHerdrClient extends HerdrClient {
 
 type MockOperation = MockHerdrCall['operation'];
 type TabListOptions = { readonly workspaceId?: string };
-type ReadCallOptions = ReadOptions | TabListOptions;
 type RecordCall = (
   operation: MockOperation,
   target: string | null,
-  options?: ReadCallOptions,
+  options?: object | null,
   argv?: readonly string[],
 ) => void;
 type LookupOperation = 'agent.get' | 'agent.read' | 'pane.get' | 'pane.read';
@@ -79,6 +101,7 @@ export function createMockHerdrClient(setup: MockHerdrClientSetup = {}): MockHer
     agent: createAgentOperations(setup, recordCall),
     pane: createPaneOperations(setup, recordCall),
     workspace: createWorkspaceOperations(setup, recordCall),
+    plugin: createPluginPaneOperations(setup, recordCall),
     tab: createTabOperations(setup, recordCall),
   };
 }
@@ -111,10 +134,28 @@ function createPaneOperations(
       recordCall('pane.get', paneId);
       return resolveLookup(setup.panes?.[paneId], 'pane.get', argv);
     },
+    list(options?: TabListOptions): Promise<Pane[]> {
+      recordCall('pane.list', null, options);
+      const configured = setup.paneList;
+      if (configured instanceof Error) {
+        return Promise.reject(configured);
+      }
+      const panes = configured ?? [];
+      const filtered =
+        options?.workspaceId === undefined
+          ? panes
+          : panes.filter((item) => item.workspace_id === options.workspaceId);
+      return Promise.resolve([...filtered]);
+    },
     read(paneId: string, options?: ReadOptions): Promise<string> {
       const argv = buildReadArgv('pane', paneId, options);
       recordCall('pane.read', paneId, options);
       return resolveLookup(setup.paneReads?.[paneId], 'pane.read', argv);
+    },
+    reportMetadata(paneId: string, options: PaneReportMetadataOptions): Promise<void> {
+      recordCall('pane.reportMetadata', paneId, options);
+      const error = setup.paneReportMetadataErrors?.[paneId];
+      return error === undefined ? Promise.resolve() : Promise.reject(error);
     },
   };
 }
@@ -127,6 +168,10 @@ function createWorkspaceOperations(
     list(): Promise<Workspace[]> {
       recordCall('workspace.list', null);
       return resolveList(setup.workspaces);
+    },
+    rename(workspaceId: string, label: string): Promise<Workspace> {
+      recordCall('workspace.rename', workspaceId, { label });
+      return resolveConfigured(setup.workspaceRenames?.[workspaceId], 'workspaceRenames');
     },
   };
 }
@@ -150,6 +195,29 @@ function createTabOperations(
           ? configured
           : configured.filter((item) => item.workspace_id === options.workspaceId);
       return Promise.resolve([...tabs]);
+    },
+    rename(tabId: string, label: string): Promise<Tab> {
+      recordCall('tab.rename', tabId, { label });
+      return resolveConfigured(setup.tabRenames?.[tabId], 'tabRenames');
+    },
+  };
+}
+
+function createPluginPaneOperations(
+  setup: MockHerdrClientSetup,
+  recordCall: RecordCall,
+): HerdrClient['plugin'] {
+  return {
+    pane: {
+      open(options: PluginPaneOpenOptions): Promise<Pane> {
+        recordCall('plugin.pane.open', null, options);
+        return resolveConfigured(setup.pluginPaneOpen, 'pluginPaneOpen');
+      },
+      close(paneId: string): Promise<void> {
+        recordCall('plugin.pane.close', paneId);
+        const error = setup.pluginPaneCloseErrors?.[paneId];
+        return error === undefined ? Promise.resolve() : Promise.reject(error);
+      },
     },
   };
 }
@@ -193,6 +261,16 @@ function resolveList<T>(configured: readonly T[] | Error | undefined): Promise<T
   return Promise.resolve(configured === undefined ? [] : [...configured]);
 }
 
+function resolveConfigured<T>(configured: T | Error | undefined, setupField: string): Promise<T> {
+  if (configured instanceof Error) {
+    return Promise.reject(configured);
+  }
+  if (configured === undefined) {
+    return Promise.reject(new HerdrError({ message: `Mock setup is missing ${setupField}.` }));
+  }
+  return Promise.resolve(configured);
+}
+
 function notFoundError(operation: LookupOperation, argv: readonly string[]): HerdrCliError {
   const agent = operation.startsWith('agent.');
   return new HerdrCliError({
@@ -204,15 +282,30 @@ function notFoundError(operation: LookupOperation, argv: readonly string[]): Her
   });
 }
 
-function copyOptions(options?: ReadCallOptions): Readonly<Record<string, unknown>> | null {
-  return options === undefined ? null : Object.fromEntries(Object.entries(options));
+function copyOptions(options?: object | null): Readonly<Record<string, unknown>> | null {
+  if (options === undefined || options === null) {
+    return null;
+  }
+  return Object.fromEntries(
+    Object.entries(options).map(([key, value]) => [key, copyOptionValue(value)]),
+  );
+}
+
+function copyOptionValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return [...value];
+  }
+  if (value !== null && typeof value === 'object') {
+    return { ...value };
+  }
+  return value;
 }
 
 function copyCall(call: MockHerdrCall): MockHerdrCall {
   return {
     operation: call.operation,
     target: call.target,
-    options: call.options === null ? null : { ...call.options },
+    options: copyOptions(call.options),
     ...(call.argv === undefined ? {} : { argv: [...call.argv] }),
   };
 }

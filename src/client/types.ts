@@ -107,6 +107,34 @@ export interface ReadOptions {
   readonly lines?: number;
   readonly format?: ReadFormat;
 }
+/** Plugin pane placement accepted by `plugin pane open`. */
+export type PluginPanePlacement = 'overlay' | 'popup' | 'split' | 'tab' | 'zoomed' | 'fullscreen';
+
+/** Split direction accepted by `plugin pane open`. */
+export type PluginPaneDirection = 'right' | 'down';
+
+/** Options for opening a plugin pane through the Herdr CLI. */
+export interface PluginPaneOpenOptions {
+  readonly pluginId: string;
+  readonly entrypoint: string;
+  readonly placement?: PluginPanePlacement;
+  readonly workspaceId?: string;
+  readonly targetPane?: string;
+  readonly direction?: PluginPaneDirection;
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly focus?: boolean;
+}
+
+/** Display-only metadata reported by a pane. */
+export interface PaneReportMetadataOptions {
+  readonly source: string;
+  readonly title?: string;
+  readonly clearTitle?: boolean;
+  readonly tokens?: Readonly<Record<string, string>>;
+  readonly clearTokens?: readonly string[];
+  readonly ttlMs?: number;
+}
 
 /** Options for creating a typed Herdr CLI client. */
 export interface HerdrClientOptions {
@@ -128,16 +156,32 @@ export interface HerdrClient {
   readonly pane: {
     /** Gets structured information about a pane. */
     get(paneId: string): Promise<Pane>;
+    /** Lists panes, optionally limited to one workspace. */
+    list(options?: { readonly workspaceId?: string }): Promise<Pane[]>;
     /** Reads terminal text associated with a pane. */
     read(paneId: string, options?: ReadOptions): Promise<string>;
+    /** Reports display-only metadata for a pane. */
+    reportMetadata(paneId: string, options: PaneReportMetadataOptions): Promise<void>;
+  };
+  readonly plugin: {
+    readonly pane: {
+      /** Opens a plugin pane and returns its pane information. */
+      open(options: PluginPaneOpenOptions): Promise<Pane>;
+      /** Closes a plugin pane. */
+      close(paneId: string): Promise<void>;
+    };
   };
   readonly workspace: {
     /** Lists workspaces visible to the Herdr CLI. */
     list(): Promise<Workspace[]>;
+    /** Renames a workspace. */
+    rename(workspaceId: string, label: string): Promise<Workspace>;
   };
   readonly tab: {
     /** Lists tabs, optionally limited to one workspace. */
     list(options?: { readonly workspaceId?: string }): Promise<Tab[]>;
+    /** Renames a tab. */
+    rename(tabId: string, label: string): Promise<Tab>;
   };
   /** Runs a Herdr CLI command and returns its stdout unchanged. */
   run(argv: readonly string[]): Promise<string>;

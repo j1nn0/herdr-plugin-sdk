@@ -1,5 +1,6 @@
 import type { Agent, Pane, Tab, Workspace } from '../client/types.js';
 import type { PluginContext, PaneAgentStatusChangedData } from '../runtime/types.js';
+/* oxlint-disable max-lines */
 
 const WORKSPACE_ID = 'w1G';
 const TAB_ID = `${WORKSPACE_ID}:t1`;
@@ -142,6 +143,91 @@ export function createTabListOutputFixture(overrides: OutputFixtureOverrides<Tab
     result: {
       type: 'tab_list',
       tabs: [createTabFixture(overrides.payload)],
+    },
+  };
+}
+
+/** Builds a successful `pane list` CLI output envelope. */
+export function createPaneListOutputFixture(overrides: OutputFixtureOverrides<Pane> = {}): {
+  readonly id: string;
+  readonly result: { readonly type: 'pane_list'; readonly panes: readonly Pane[] };
+} {
+  return {
+    id: overrides.id ?? 'fixture:pane:list',
+    result: {
+      type: 'pane_list',
+      panes: [createPaneFixture(overrides.payload)],
+    },
+  };
+}
+
+/** Builds a successful `plugin pane close` CLI output envelope. */
+export function createPluginPaneCloseOutputFixture(
+  overrides: OutputFixtureOverrides<{ readonly pane_id: string }> = {},
+): {
+  readonly id: string;
+  readonly result: { readonly type: 'plugin_pane_closed'; readonly pane_id: string };
+} {
+  return {
+    id: overrides.id ?? 'fixture:plugin-pane:close',
+    result: {
+      type: 'plugin_pane_closed',
+      pane_id: overrides.payload?.pane_id ?? PANE_ID,
+    },
+  };
+}
+
+/** Builds a successful `plugin pane open` CLI output envelope. */
+export function createPluginPaneOpenOutputFixture(overrides: OutputFixtureOverrides<Pane> = {}): {
+  readonly id: string;
+  readonly result: {
+    readonly type: 'plugin_pane_opened';
+    readonly plugin_pane: {
+      readonly plugin_id: string;
+      readonly entrypoint: string;
+      readonly pane: Pane;
+    };
+  };
+} {
+  return {
+    id: overrides.id ?? 'fixture:plugin-pane:open',
+    result: {
+      type: 'plugin_pane_opened',
+      plugin_pane: {
+        plugin_id: 'example.plugin',
+        entrypoint: 'widget',
+        pane: createPaneFixture(overrides.payload),
+      },
+    },
+  };
+}
+
+/** Builds a successful `tab rename` CLI output envelope. */
+export function createTabRenameOutputFixture(overrides: OutputFixtureOverrides<Tab> = {}): {
+  readonly id: string;
+  readonly result: { readonly type: 'tab_info'; readonly tab: Tab };
+} {
+  return {
+    id: overrides.id ?? 'fixture:tab:rename',
+    result: {
+      type: 'tab_info',
+      tab: createTabFixture(overrides.payload),
+    },
+  };
+}
+
+/** Builds a successful `workspace rename` CLI output envelope. */
+export function createWorkspaceRenameOutputFixture(
+  overrides: OutputFixtureOverrides<Workspace> = {},
+): {
+  readonly id: string;
+  readonly result: { readonly type: 'workspace_info'; readonly workspace: Workspace };
+} {
+  return {
+    id: overrides.id ?? 'fixture:workspace:rename',
+    result: {
+      type: 'workspace_info',
+      workspace: createWorkspaceFixture(overrides.payload),
     },
   };
 }

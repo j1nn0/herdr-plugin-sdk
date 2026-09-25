@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 /* oxlint-disable max-lines */
 import type {
   Agent,
+  HerdrClient,
   HerdrCommandExecutor,
+  HerdrCommandRequest,
   HerdrCommandResult,
   Pane,
   PluginContext,
@@ -11,6 +13,7 @@ import type {
 } from '../src/index.js';
 import {
   HerdrCliError,
+  HerdrError,
   createHerdrClient,
   isHerdrCliError,
   isPaneAgentStatusChanged,
@@ -24,17 +27,25 @@ import {
   createCliErrorOutputFixture,
   createPaneGetOutputFixture,
   createPaneFixture,
+  createPaneListOutputFixture,
   createPluginContextFixture,
   createPluginEnvFixture,
   createPluginEventFixture,
+  createPluginPaneCloseOutputFixture,
+  createPluginPaneOpenOutputFixture,
+  createRecordingExecutor,
   createTabListOutputFixture,
   createTabFixture,
+  createTabRenameOutputFixture,
   createWorkspaceListOutputFixture,
   createWorkspaceFixture,
+  createWorkspaceRenameOutputFixture,
   createMockHerdrClient,
   serializeCliOutput,
   type MockHerdrCall,
+  type MockHerdrClient,
   type MockHerdrClientSetup,
+  type RecordedHerdrCommand,
 } from '../src/testing/index.js';
 
 describe('mock Herdr client', () => {
@@ -467,4 +478,287 @@ async function capture(action: () => Promise<unknown>): Promise<unknown> {
     return error;
   }
   throw new Error('Expected action to reject.');
+}
+
+describe('v0.3 testing helpers', () => {
+  it('builds protocol-shaped fixtures with pinned result discriminators and override payloads', () => {
+    const pane = createPaneFixture({ pane_id: 'pane-opened', label: 'Widget' });
+    const open = createPluginPaneOpenOutputFixture({ id: 'custom-open', payload: pane });
+    expect(open).toEqual({
+      id: 'custom-open',
+      result: {
+        type: 'plugin_pane_opened',
+        plugin_pane: { plugin_id: 'example.plugin', entrypoint: 'widget', pane },
+      },
+    });
+    expectTypeOf(open.result.type).toEqualTypeOf<'plugin_pane_opened'>();
+
+    const closed = createPluginPaneCloseOutputFixture({ payload: { pane_id: 'pane-closed' } });
+    expect(closed).toEqual({
+      id: 'fixture:plugin-pane:close',
+      result: { type: 'plugin_pane_closed', pane_id: 'pane-closed' },
+    });
+    expectTypeOf(closed.result.type).toEqualTypeOf<'plugin_pane_closed'>();
+
+    expect(createPaneListOutputFixture()).toMatchObject({
+      id: 'fixture:pane:list',
+      result: { type: 'pane_list', panes: [createPaneFixture()] },
+    });
+
+    const paneListOverride = createPaneListOutputFixture({ id: 'custom-pane-list', payload: pane });
+    expect(paneListOverride).toEqual({
+      id: 'custom-pane-list',
+      result: { type: 'pane_list', panes: [pane] },
+    });
+    expect(createPluginPaneOpenOutputFixture()).toMatchObject({
+      id: 'fixture:plugin-pane:open',
+      result: { type: 'plugin_pane_opened' },
+    });
+    const tab = createTabFixture({ label: 'Renamed tab' });
+    expect(createTabRenameOutputFixture({ payload: tab })).toEqual({
+      id: 'fixture:tab:rename',
+      result: { type: 'tab_info', tab },
+    });
+    const workspace = createWorkspaceFixture({ label: 'Renamed workspace' });
+    expect(createWorkspaceRenameOutputFixture({ payload: workspace })).toEqual({
+      id: 'fixture:workspace:rename',
+      result: { type: 'workspace_info', workspace },
+    });
+
+    for (const fixture of [
+      open,
+      closed,
+      createPaneListOutputFixture(),
+      createTabRenameOutputFixture(),
+      createWorkspaceRenameOutputFixture(),
+    ]) {
+      expect(serializeCliOutput(fixture)).toBe(`${JSON.stringify(fixture)}\n`);
+    }
+  });
+
+  it('records binary path, argv, timeout, and zero-based sync-or-async responder indexes', async () => {
+    const recording = createRecordingExecutor((command, index) =>
+      index === 0
+        ? commandResult(`sync:${command.argv.join(' ')}`)
+        : Promise.resolve(commandResult(`async:${index}`)),
+    );
+    const request = recordingRequest({
+      binPath: '/custom/herdr',
+      argv: ['pane', 'list'],
+      timeoutMs: 4321,
+      env: { PRIVATE_VALUE: 'must not be recorded' },
+    });
+    const first = await recording.executor(request);
+    const second = await recording.executor({ ...request, argv: ['pane', 'get', 'p'] });
+
+    expect(first.stdout).toBe('sync:pane list');
+    expect(second.stdout).toBe('async:1');
+    expect(recording.calls).toEqual([
+      { binPath: '/custom/herdr', argv: ['pane', 'list'], timeoutMs: 4321 },
+      { binPath: '/custom/herdr', argv: ['pane', 'get', 'p'], timeoutMs: 4321 },
+    ]);
+    expect(recording.calls[0]).not.toHaveProperty('env');
+  });
+
+  it('defaults to silent success and snapshots argv both on input and when read back', async () => {
+    const recording = createRecordingExecutor();
+    const argv = ['custom', 'operation'];
+    const request = recordingRequest({ argv });
+    await expect(recording.executor(request)).resolves.toEqual({
+      stdout: '',
+      stderr: '',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    });
+    argv.push('caller-mutated');
+    expect(recording.calls[0]?.argv).toEqual(['custom', 'operation']);
+
+    const snapshot = recording.calls as RecordedHerdrCommand[];
+    const snapshotArgv = snapshot[0]?.argv;
+    if (snapshotArgv === undefined) {
+      throw new Error('Expected a recorded argv snapshot.');
+    }
+    (snapshotArgv as string[]).push('snapshot-mutated');
+    expect(recording.calls[0]?.argv).toEqual(['custom', 'operation']);
+    recording.reset();
+    expect(recording.calls).toEqual([]);
+  });
+
+  it('records all new mock operations and defensively copies nested option objects and arrays', async () => {
+    const pane = createPaneFixture({ pane_id: 'pane-1' });
+    const tab = createTabFixture({ tab_id: 'tab-1' });
+    const workspace = createWorkspaceFixture({ workspace_id: 'workspace-1' });
+    const closeFailure = new Error('configured close failure');
+    const metadataFailure = new Error('configured metadata failure');
+    const openOptions = {
+      pluginId: 'example.widget',
+      entrypoint: 'widget',
+      env: { WIDGET_MODE: 'ready' },
+      focus: false,
+    };
+    const reportOptions = {
+      source: 'plugin:example.widget',
+      tokens: { status: 'ready' },
+      clearTokens: ['old-status'],
+    };
+    const client = createMockHerdrClient({
+      paneList: [pane],
+      pluginPaneOpen: pane,
+      pluginPaneCloseErrors: { 'pane-1': closeFailure },
+      paneReportMetadataErrors: { 'pane-1': metadataFailure },
+      tabRenames: { 'tab-1': tab },
+      workspaceRenames: { 'workspace-1': workspace },
+    });
+
+    await expect(client.pane.list({ workspaceId: 'w1G' })).resolves.toEqual([pane]);
+    await expect(client.plugin.pane.open(openOptions)).resolves.toEqual(pane);
+    await expect(client.plugin.pane.close('pane-1')).rejects.toBe(closeFailure);
+    await expect(client.plugin.pane.close('unconfigured-close')).resolves.toBeUndefined();
+    await expect(client.pane.reportMetadata('pane-1', reportOptions)).rejects.toBe(metadataFailure);
+    await expect(
+      client.pane.reportMetadata('unconfigured-report', { source: 'source', title: 'title' }),
+    ).resolves.toBeUndefined();
+    await expect(client.tab.rename('tab-1', 'Label with spaces')).resolves.toEqual(tab);
+    await expect(client.workspace.rename('workspace-1', '')).resolves.toEqual(workspace);
+
+    openOptions.env.WIDGET_MODE = 'mutated';
+    reportOptions.tokens.status = 'mutated';
+    reportOptions.clearTokens.push('mutated');
+    expect(client.calls).toEqual([
+      { operation: 'pane.list', target: null, options: { workspaceId: 'w1G' } },
+      {
+        operation: 'plugin.pane.open',
+        target: null,
+        options: {
+          pluginId: 'example.widget',
+          entrypoint: 'widget',
+          env: { WIDGET_MODE: 'ready' },
+          focus: false,
+        },
+      },
+      { operation: 'plugin.pane.close', target: 'pane-1', options: null },
+      { operation: 'plugin.pane.close', target: 'unconfigured-close', options: null },
+      {
+        operation: 'pane.reportMetadata',
+        target: 'pane-1',
+        options: {
+          source: 'plugin:example.widget',
+          tokens: { status: 'ready' },
+          clearTokens: ['old-status'],
+        },
+      },
+      {
+        operation: 'pane.reportMetadata',
+        target: 'unconfigured-report',
+        options: { source: 'source', title: 'title' },
+      },
+      { operation: 'tab.rename', target: 'tab-1', options: { label: 'Label with spaces' } },
+      { operation: 'workspace.rename', target: 'workspace-1', options: { label: '' } },
+    ]);
+
+    const snapshot = client.calls as MockHerdrCall[];
+    const openCall = snapshot[1];
+    const reportCall = snapshot[4];
+    if (
+      openCall === undefined ||
+      openCall.options === null ||
+      reportCall === undefined ||
+      reportCall.options === null
+    ) {
+      throw new Error('Expected recorded option snapshots.');
+    }
+    (openCall.options.env as Record<string, string>).WIDGET_MODE = 'snapshot mutation';
+    (reportCall.options.clearTokens as string[]).push('snapshot mutation');
+    expect(client.calls[1]?.options?.env).toEqual({ WIDGET_MODE: 'ready' });
+    expect(client.calls[4]?.options?.clearTokens).toEqual(['old-status']);
+  });
+
+  it('uses documented defaults and rejects unconfigured open and rename responses with HerdrError', async () => {
+    const client = createMockHerdrClient();
+    await expect(client.pane.list()).resolves.toEqual([]);
+    await expect(client.plugin.pane.close('pane')).resolves.toBeUndefined();
+    await expect(
+      client.pane.reportMetadata('pane', { source: 'source', title: 'title' }),
+    ).resolves.toBeUndefined();
+
+    for (const action of [
+      () => client.plugin.pane.open({ pluginId: 'p', entrypoint: 'e' }),
+      () => client.tab.rename('tab', 'label'),
+      () => client.workspace.rename('workspace', 'label'),
+    ]) {
+      const error = await capture(action);
+      expect(error).toBeInstanceOf(HerdrError);
+      expect(error).not.toBeInstanceOf(HerdrCliError);
+      expect((error as Error).message).toMatch(/Mock setup is missing/u);
+    }
+    expect(client.calls.map(({ operation }) => operation)).toEqual([
+      'pane.list',
+      'plugin.pane.close',
+      'pane.reportMetadata',
+      'plugin.pane.open',
+      'tab.rename',
+      'workspace.rename',
+    ]);
+  });
+
+  it('honors configured errors for new mock operations and reports missing setup without fabrication', async () => {
+    const openFailure = new Error('open failed');
+    const tabFailure = new Error('tab rename failed');
+    const workspaceFailure = new Error('workspace rename failed');
+    const listFailure = new Error('pane list failed');
+    const closeFailure = new Error('close failed');
+    const metadataFailure = new Error('metadata failed');
+    const client = createMockHerdrClient({
+      paneList: listFailure,
+      pluginPaneOpen: openFailure,
+      pluginPaneCloseErrors: { pane: closeFailure },
+      paneReportMetadataErrors: { pane: metadataFailure },
+      tabRenames: { tab: tabFailure },
+      workspaceRenames: { workspace: workspaceFailure },
+    });
+    await expect(client.pane.list()).rejects.toBe(listFailure);
+    await expect(client.plugin.pane.open({ pluginId: 'p', entrypoint: 'e' })).rejects.toBe(
+      openFailure,
+    );
+    await expect(client.plugin.pane.close('pane')).rejects.toBe(closeFailure);
+    await expect(client.pane.reportMetadata('pane', { source: 's', title: 't' })).rejects.toBe(
+      metadataFailure,
+    );
+    await expect(client.tab.rename('tab', 'label')).rejects.toBe(tabFailure);
+    await expect(client.workspace.rename('workspace', 'label')).rejects.toBe(workspaceFailure);
+
+    const missingTab = await capture(() => client.tab.rename('missing', 'label'));
+    const missingWorkspace = await capture(() => client.workspace.rename('missing', 'label'));
+    expect(missingTab).toBeInstanceOf(HerdrError);
+    expect(missingWorkspace).toBeInstanceOf(HerdrError);
+    expect((missingTab as Error).message).toContain('tabRenames');
+    expect((missingWorkspace as Error).message).toContain('workspaceRenames');
+  });
+
+  it('keeps both factories assignable to the expanded required client contracts', () => {
+    const typed: HerdrClient = createHerdrClient();
+    const mock: MockHerdrClient = createMockHerdrClient();
+    const mockAsClient: HerdrClient = mock;
+    expectTypeOf(typed).toMatchTypeOf<HerdrClient>();
+    expectTypeOf(mock).toMatchTypeOf<MockHerdrClient>();
+    expectTypeOf(mockAsClient).toMatchTypeOf<HerdrClient>();
+    expect(mock.plugin.pane.open).toBeTypeOf('function');
+    expect(mock.plugin.pane.close).toBeTypeOf('function');
+    expect(mock.pane.list).toBeTypeOf('function');
+    expect(mock.pane.reportMetadata).toBeTypeOf('function');
+    expect(mock.tab.rename).toBeTypeOf('function');
+    expect(mock.workspace.rename).toBeTypeOf('function');
+  });
+});
+
+function recordingRequest(overrides: Partial<HerdrCommandRequest> = {}): HerdrCommandRequest {
+  return {
+    binPath: 'herdr',
+    argv: ['pane', 'list'],
+    timeoutMs: 10_000,
+    maxBuffer: 1024,
+    env: { HERDR_ENV: '1' },
+    ...overrides,
+  };
 }

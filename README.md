@@ -19,7 +19,7 @@ const workspaces = await createHerdrClient().workspace.list();
 console.log(`${runtime.pluginId}: ${workspaces.length} workspace(s)`);
 ```
 
-- Typed Herdr CLI client for `agent`, `pane`, `workspace`, and `tab` operations.
+- Typed Herdr CLI client for agent, pane, plugin pane, workspace, and tab operations.
 - Plugin runtime and context parsing from Herdr's environment.
 - Typed narrowing for supported plugin events.
 - Structured Herdr errors for environment, response, process, timeout, and CLI failures.
@@ -116,7 +116,7 @@ The SDK does not decide whether an `agent_status` of `done` should trigger an ac
 
 ## CLI client
 
-`createHerdrClient` exposes typed `agent`, `pane`, `workspace`, and `tab` operations. Read output is returned as a string.
+`createHerdrClient` exposes typed `agent`, `pane`, `plugin.pane`, `workspace`, and `tab` operations. Read output is returned as a string.
 
 ```ts
 import {
@@ -137,11 +137,30 @@ const pane = await client.pane.get('workspace:pane');
 const paneText = await client.pane.read('workspace:pane', {
   source: 'recent-unwrapped',
 });
+const panes = await client.pane.list({ workspaceId: 'workspace' });
 const workspaces = await client.workspace.list();
 const tabs = await client.tab.list({ workspaceId: 'workspace' });
+const renamedTab = await client.tab.rename('workspace:tab', 'My tab');
+const renamedWorkspace = await client.workspace.rename('workspace', 'My workspace');
 
-console.log(agent, agentText, pane, paneText, workspaces, tabs);
+const pluginPane = await client.plugin.pane.open({
+  pluginId: 'example.plugin',
+  entrypoint: 'widget',
+  placement: 'overlay',
+  focus: false,
+});
+await client.pane.reportMetadata(pluginPane.pane_id, {
+  source: 'plugin:example.plugin',
+  tokens: { status: 'ready' },
+});
+await client.plugin.pane.close(pluginPane.pane_id);
+
+console.log(agent, agentText, pane, paneText, panes, workspaces, tabs, renamedTab, renamedWorkspace);
 ```
+
+`plugin.pane.open` accepts the six `PluginPanePlacement` contract values (`overlay`, `popup`, `split`, `tab`, `zoomed`, and `fullscreen`). The CLI's `--help` output can under-report supported placements; the operation contract is described by `herdr api schema --json`. The SDK does not set focus unless `focus` is provided: `true` emits `--focus`, `false` emits `--no-focus`, and omission leaves the CLI default in effect. The CLI and socket APIs have different focus defaults, so the CLI default is intentionally preserved. Width and height are not typed options; pass supported sizing flags through `run()` when needed.
+
+`pane.reportMetadata` treats a zero exit code as success and ignores successful stdout. `ttlMs` must be an integer from 1 through 86400000. The SDK rejects blank `source` values but passes blank titles and empty token values through unchanged. Token syntax/count limits and other server-side metadata limits remain Herdr-owned. Tab and workspace rename labels are passed as one argv token, including empty strings or labels with spaces.
 
 Herdr silently clamps `--lines` to approximately 1000 rows on the verified
 Herdr releases. This upstream behavior is undocumented; the SDK intentionally
@@ -152,21 +171,13 @@ The client also supports `timeoutMs`, `maxBuffer`, a custom `env`, and an execut
 
 ## Generic CLI commands
 
-The Herdr CLI is the official Plugin v1 API. The typed client intentionally starts small. For a Herdr CLI command that does not have a typed method yet, use `run()`:
+The Herdr CLI is the official Plugin v1 API. The typed client intentionally starts small. For a command without a typed method, use `run()`. For example, Herdr 0.9.1 exposes `pane layout` (`herdr pane layout --help`), which this client does not model:
 
 ```ts
 import { createHerdrClient } from '@j1nn0/herdr-plugin-sdk';
 
 const herdr = createHerdrClient();
-const output = await herdr.run([
-  'plugin',
-  'pane',
-  'open',
-  '--plugin',
-  'example.plugin',
-  '--entrypoint',
-  'inbox',
-]);
+const output = await herdr.run(['pane', 'layout', '--help']);
 ```
 
 `run()` uses the same binary resolution, no-shell execution, buffer limits, and structured error handling as typed methods. Its SDK process timeout defaults to `0` (no timeout); an explicit `timeoutMs` on `createHerdrClient` applies to `run()` as well as typed operations. Successful stdout is returned unchanged. Prefer a typed method when the SDK provides one; use `run()` otherwise.
@@ -195,10 +206,9 @@ const runtime = readPluginRuntime(createPluginEnvFixture());
 console.log(agent.agent_status, runtime.pluginId);
 ```
 
-`createMockHerdrClient` records calls and can be configured with agent, pane, read, workspace, tab, and generic `run()` responses. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
+`createMockHerdrClient` records calls and can be configured with agent, pane, pane-list, metadata-reporting, rename, plugin-pane, read, workspace, tab, and generic `run()` responses. For code that needs lower-level control, `createHerdrClient` accepts the exported `HerdrCommandExecutor` seam.
 
-For protocol-shaped client tests, the testing entrypoint also provides output
-envelopes and a serializer for the CLI trailing newline:
+For protocol-shaped client tests, the testing entrypoint provides output envelopes for resource lookups, lists, plugin-pane open/close, and tab/workspace renames, plus a recording executor and a serializer for the CLI trailing newline:
 
 ```ts
 import { createHerdrClient } from '@j1nn0/herdr-plugin-sdk';
@@ -225,8 +235,9 @@ const agent = await client.agent.get('w1G:p1');
 
 - [`examples/hello-plugin`](examples/hello-plugin) — an action that lists workspaces through the typed client.
 - [`examples/event-plugin`](examples/event-plugin) — an event hook that narrows status changes and applies an explicit `done` policy.
+- [`examples/plugin-pane-widget`](examples/plugin-pane-widget) — a plugin pane lifecycle using typed open, metadata reporting, and close operations.
 
-Both examples are verified in CI against the packed package artifact.
+All three examples are verified in CI against the packed package artifact.
 
 ## Built with this SDK
 
@@ -283,6 +294,7 @@ The corresponding missing-agent code is `agent_not_found`.
 - CLI-first integration through the Herdr CLI
 
 The client shells out to the Herdr CLI. By default it resolves the binary from `HERDR_BIN_PATH` (or uses `herdr` when that variable is not set); `createHerdrClient` also accepts an explicit `binPath`. This is the portable integration path. There is no socket client.
+The v0.3 typed client surface was source-checked against Herdr tags `v0.8.2`, `v0.9.0`, `v0.9.1`, and `main`; the six new operation contracts did not differ. Read-only live verification used Herdr 0.9.1 with protocol 22. `herdr api schema --json` is the contract source. The supported minimum remains `>= 0.8.2`.
 
 ## Scope
 

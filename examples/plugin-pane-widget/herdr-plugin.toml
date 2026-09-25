@@ -1,0 +1,11 @@
+id = "example.plugin-pane-widget"
+name = "Plugin Pane Widget"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Opens a plugin-owned pane, reports metadata, and closes it through the typed client."
+platforms = ["linux", "macos", "windows"]
+
+[[panes]]
+id = "widget"
+title = "Widget"
+command = ["node", "dist/open-widget.js"]

@@ -75,6 +75,14 @@ const WORKSPACE_SPEC: ResourceSpec = [
   WORKSPACE_FIELDS,
 ];
 const TAB_SPEC: ResourceSpec = ['tab.list', 'tab_list', 'tabs', TAB_FIELDS];
+const PANE_LIST_SPEC: ResourceSpec = ['pane.list', 'pane_list', 'panes', PANE_FIELDS];
+const TAB_RENAME_SPEC: ResourceSpec = ['tab.rename', 'tab_info', 'tab', TAB_FIELDS];
+const WORKSPACE_RENAME_SPEC: ResourceSpec = [
+  'workspace.rename',
+  'workspace_info',
+  'workspace',
+  WORKSPACE_FIELDS,
+];
 
 export function parseAgentResponse(
   result: HerdrCommandResult,
@@ -108,6 +116,60 @@ export function parseTabResponse(
   return parseResourceListResponse(result, argv, timeoutMs, TAB_SPEC);
 }
 
+export function parsePaneListResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): Pane[] {
+  return parseResourceListResponse(result, argv, timeoutMs, PANE_LIST_SPEC);
+}
+
+export function parseTabRenameResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): Tab {
+  return parseResourceResponse(result, argv, timeoutMs, TAB_RENAME_SPEC);
+}
+
+export function parseWorkspaceRenameResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): Workspace {
+  return parseResourceResponse(result, argv, timeoutMs, WORKSPACE_RENAME_SPEC);
+}
+
+export function parsePluginPaneOpenResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): Pane {
+  const operation = 'plugin.pane.open';
+  const response = parseResultEnvelope(result, operation, 'plugin_pane_opened', argv, timeoutMs);
+  const pluginPane = response.plugin_pane;
+  if (!isPlainObject(pluginPane)) {
+    throw responseError(operation, argv, 'result.plugin_pane must be an object.');
+  }
+  const pane = pluginPane.pane;
+  if (!isPlainObject(pane)) {
+    throw responseError(operation, argv, 'result.plugin_pane.pane must be an object.');
+  }
+  validateRequiredFields(pane, operation, argv, 'result.plugin_pane.pane', PANE_FIELDS);
+  validateAgentSession(pane, operation, argv, 'result.plugin_pane.pane');
+  return pane as Pane;
+}
+
+export function parsePluginPaneCloseResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): void {
+  const operation = 'plugin.pane.close';
+  const response = parseResultEnvelope(result, operation, 'plugin_pane_closed', argv, timeoutMs);
+  validateRequiredFields(response, operation, argv, 'result', [required('pane_id', isString)]);
+}
+
 /** Handles process status; agent_not_found and pane_not_found errors always throw. */
 export function parseReadResponse(
   result: HerdrCommandResult,
@@ -120,6 +182,15 @@ export function parseReadResponse(
   // Read output is user/agent content. Herdr signals read failures on stderr with
   // a non-zero exit, so stdout is never an error envelope.
   return readText(result.stdout);
+}
+
+/** Reports display-only pane metadata; successful stdout is intentionally ignored. */
+export function parsePaneReportMetadataResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): void {
+  assertCommandSucceeded(result, 'pane.reportMetadata', argv, timeoutMs);
 }
 
 /** Runs an unmodeled CLI command without interpreting its stdout. */
@@ -170,6 +241,9 @@ function parseResourceListResponse<T>(
       throw responseError(operation, argv, `result.${payloadKey}[${index}] must be an object.`);
     }
     validateRequiredFields(item, operation, argv, `result.${payloadKey}[${index}]`, fields);
+    if (payloadKey === 'panes') {
+      validateAgentSession(item, operation, argv, `result.${payloadKey}[${index}]`);
+    }
     return item as T;
   });
 }
@@ -181,6 +255,16 @@ function parseStructuredEnvelope(
   spec: ResourceSpec,
 ): Record<string, unknown> {
   const [operation, expectedType] = spec;
+  return parseResultEnvelope(result, operation, expectedType, argv, timeoutMs);
+}
+
+function parseResultEnvelope(
+  result: HerdrCommandResult,
+  operation: string,
+  expectedType: string,
+  argv: readonly string[],
+  timeoutMs: number,
+): Record<string, unknown> {
   assertCommandSucceeded(result, operation, argv, timeoutMs);
 
   const parsed = parseJson(readText(result.stdout));
