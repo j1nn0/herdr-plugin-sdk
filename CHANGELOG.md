@@ -8,6 +8,8 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
 ### Added
 
 - Typed `plugin.pane.open()` / `close()`, `pane.list()` / `reportMetadata()`, `tab.rename()`, and `workspace.rename()` operations.
@@ -17,6 +19,7 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 ### Changed
 
 - `HerdrClient` now requires the new operation groups, which is source-breaking for manual client implementers. Clients created by `createHerdrClient()` and `createMockHerdrClient()` need no migration.
+- Minimum Herdr remains `>= 0.8.2`. The new operation contracts were source-checked against Herdr `v0.8.2`, `v0.9.0`, `v0.9.1`, and current upstream with no differences in this surface; live read-only verification used Herdr `0.9.1` / protocol `22`.
 
 ## [0.2.1] - 2026-09-24
 
@@ -52,7 +55,8 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 - Compatibility with Herdr `>= 0.8.2` and Node.js `>= 22`.
 - The `hello-plugin` and `event-plugin` examples.
 
-[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/j1nn0/herdr-plugin-sdk/releases/tag/v0.1.0
