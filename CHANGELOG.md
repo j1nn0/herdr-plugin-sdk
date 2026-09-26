@@ -8,6 +8,8 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-26
+
 ### Added
 
 - Typed `pane.processInfo()` and `tab.create()` client operations, with `PaneForegroundProcess`, `PaneProcessInfo`, `TabCreateOptions`, and `TabCreateResult`.
@@ -64,7 +66,8 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 - Compatibility with Herdr `>= 0.8.2` and Node.js `>= 22`.
 - The `hello-plugin` and `event-plugin` examples.
 
-[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/j1nn0/herdr-plugin-sdk/compare/v0.1.0...v0.2.0
