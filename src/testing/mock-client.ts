@@ -4,10 +4,13 @@ import type {
   Agent,
   HerdrClient,
   Pane,
+  PaneProcessInfo,
   PaneReportMetadataOptions,
   PluginPaneOpenOptions,
   ReadOptions,
   Tab,
+  TabCreateOptions,
+  TabCreateResult,
   Workspace,
 } from '../client/types.js';
 
@@ -19,12 +22,14 @@ export interface MockHerdrCall {
     | 'agent.get'
     | 'agent.read'
     | 'pane.get'
+    | 'pane.processInfo'
     | 'pane.list'
     | 'pane.read'
     | 'pane.reportMetadata'
     | 'plugin.pane.close'
     | 'plugin.pane.open'
     | 'tab.list'
+    | 'tab.create'
     | 'tab.rename'
     | 'workspace.list'
     | 'workspace.rename'
@@ -39,6 +44,7 @@ export interface MockHerdrCall {
 export interface MockHerdrClientSetup {
   readonly agents?: Readonly<Record<string, Agent | Error>>;
   readonly panes?: Readonly<Record<string, Pane | Error>>;
+  readonly paneProcessInfo?: Readonly<Record<string, PaneProcessInfo | Error>>;
   readonly agentReads?: Readonly<Record<string, string | Error>>;
   readonly paneReads?: Readonly<Record<string, string | Error>>;
   readonly paneList?: readonly Pane[] | Error;
@@ -49,6 +55,7 @@ export interface MockHerdrClientSetup {
   readonly workspaceRenames?: Readonly<Record<string, Workspace | Error>>;
   readonly tabs?: readonly Tab[] | Error;
   readonly tabRenames?: Readonly<Record<string, Tab | Error>>;
+  readonly tabCreate?: TabCreateResult | Error;
   /** Response for an unmodeled CLI command. */
   readonly run?: (argv: readonly string[]) => string | Error;
 }
@@ -69,7 +76,7 @@ type RecordCall = (
   options?: object | null,
   argv?: readonly string[],
 ) => void;
-type LookupOperation = 'agent.get' | 'agent.read' | 'pane.get' | 'pane.read';
+type LookupOperation = 'agent.get' | 'agent.read' | 'pane.get' | 'pane.processInfo' | 'pane.read';
 
 /** Creates an in-memory Herdr client whose responses come from `setup`. */
 export function createMockHerdrClient(setup: MockHerdrClientSetup = {}): MockHerdrClient {
@@ -134,6 +141,13 @@ function createPaneOperations(
       recordCall('pane.get', paneId);
       return resolveLookup(setup.panes?.[paneId], 'pane.get', argv);
     },
+    processInfo(paneId: string): Promise<PaneProcessInfo> {
+      const argv = ['pane', 'process-info', '--pane', paneId];
+      recordCall('pane.processInfo', paneId);
+      return resolveLookup(setup.paneProcessInfo?.[paneId], 'pane.processInfo', argv).then(
+        copyPaneProcessInfo,
+      );
+    },
     list(options?: TabListOptions): Promise<Pane[]> {
       recordCall('pane.list', null, options);
       const configured = setup.paneList;
@@ -195,6 +209,13 @@ function createTabOperations(
           ? configured
           : configured.filter((item) => item.workspace_id === options.workspaceId);
       return Promise.resolve([...tabs]);
+    },
+    create(options?: TabCreateOptions): Promise<TabCreateResult> {
+      recordCall('tab.create', null, options);
+      return resolveConfigured(setup.tabCreate, 'tabCreate').then(({ tab, rootPane }) => {
+        // Copy resource records so mutations to this mock result cannot change configured values.
+        return { tab: { ...tab }, rootPane: { ...rootPane } };
+      });
     },
     rename(tabId: string, label: string): Promise<Tab> {
       recordCall('tab.rename', tabId, { label });
@@ -280,6 +301,23 @@ function notFoundError(operation: LookupOperation, argv: readonly string[]): Her
     argv,
     exitCode: 1,
   });
+}
+
+function copyPaneProcessInfo(processInfo: PaneProcessInfo): PaneProcessInfo {
+  const processes = processInfo.foreground_processes;
+  return {
+    ...processInfo,
+    ...(processes === undefined
+      ? {}
+      : {
+          foreground_processes: processes.map((process) => ({
+            ...process,
+            ...(process.argv === undefined || process.argv === null
+              ? {}
+              : { argv: [...process.argv] }),
+          })),
+        }),
+  };
 }
 
 function copyOptions(options?: object | null): Readonly<Record<string, unknown>> | null {

@@ -5,7 +5,7 @@ import {
   HerdrTimeoutError,
 } from '../errors.js';
 import type { HerdrCommandResult } from './executor.js';
-import type { Agent, Pane, Tab, Workspace } from './types.js';
+import type { Agent, Pane, PaneProcessInfo, Tab, TabCreateResult, Workspace } from './types.js';
 /* oxlint-disable max-lines */
 
 interface RequiredField {
@@ -25,6 +25,8 @@ type CliErrorPayload = { readonly code: string; readonly message: string };
 const isString = (value: unknown): boolean => typeof value === 'string';
 const isBoolean = (value: unknown): boolean => typeof value === 'boolean';
 const isInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value);
+const isStringArray = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 const AGENT_FIELDS: readonly RequiredField[] = [
   required('pane_id', isString),
@@ -130,6 +132,79 @@ export function parseTabRenameResponse(
   timeoutMs: number,
 ): Tab {
   return parseResourceResponse(result, argv, timeoutMs, TAB_RENAME_SPEC);
+}
+
+export function parsePaneProcessInfoResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): PaneProcessInfo {
+  const operation = 'pane.processInfo';
+  const response = parseResultEnvelope(result, operation, 'pane_process_info', argv, timeoutMs);
+  const processInfo = response.process_info;
+  if (!isPlainObject(processInfo)) {
+    throw responseError(operation, argv, 'result.process_info must be an object.');
+  }
+  validateRequiredFields(processInfo, operation, argv, 'result.process_info', [
+    required('pane_id', isString),
+  ]);
+  validateOptionalNullableFields(processInfo, operation, argv, 'result.process_info', [
+    required('shell_pid', isInteger),
+    required('foreground_process_group_id', isInteger),
+  ]);
+
+  if (Object.hasOwn(processInfo, 'foreground_processes')) {
+    const processes = processInfo.foreground_processes;
+    if (!Array.isArray(processes)) {
+      throw responseError(
+        operation,
+        argv,
+        'result.process_info.foreground_processes must be an array.',
+      );
+    }
+    processes.forEach((process: unknown, index: number) => {
+      const path = `result.process_info.foreground_processes[${index}]`;
+      if (!isPlainObject(process)) {
+        throw responseError(operation, argv, `${path} must be an object.`);
+      }
+      validateRequiredFields(process, operation, argv, path, [
+        required('pid', isInteger),
+        required('name', isString),
+      ]);
+      validateOptionalNullableFields(process, operation, argv, path, [
+        required('argv0', isString),
+        required('argv', isStringArray),
+        required('cmdline', isString),
+        required('cwd', isString),
+      ]);
+    });
+  }
+
+  return processInfo as PaneProcessInfo;
+}
+
+export function parseTabCreateResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): TabCreateResult {
+  const operation = 'tab.create';
+  const response = parseResultEnvelope(result, operation, 'tab_created', argv, timeoutMs);
+  const tab = response.tab;
+  if (!isPlainObject(tab)) {
+    throw responseError(operation, argv, 'result.tab must be an object.');
+  }
+  validateRequiredFields(tab, operation, argv, 'result.tab', TAB_FIELDS);
+  validateAgentSession(tab, operation, argv, 'result.tab');
+
+  const rootPane = response.root_pane;
+  if (!isPlainObject(rootPane)) {
+    throw responseError(operation, argv, 'result.root_pane must be an object.');
+  }
+  validateRequiredFields(rootPane, operation, argv, 'result.root_pane', PANE_FIELDS);
+  validateAgentSession(rootPane, operation, argv, 'result.root_pane');
+
+  return { tab: tab as Tab, rootPane: rootPane as Pane };
 }
 
 export function parseWorkspaceRenameResponse(
@@ -356,6 +431,23 @@ function validateRequiredFields(
 ): void {
   for (const field of fields) {
     if (!Object.hasOwn(payload, field.name) || !field.isValid(payload[field.name])) {
+      throw responseError(operation, argv, `${path}.${field.name} is missing or invalid.`);
+    }
+  }
+}
+
+function validateOptionalNullableFields(
+  payload: Record<string, unknown>,
+  operation: string,
+  argv: readonly string[],
+  path: string,
+  fields: readonly RequiredField[],
+): void {
+  for (const field of fields) {
+    if (!Object.hasOwn(payload, field.name) || payload[field.name] === null) {
+      continue;
+    }
+    if (!field.isValid(payload[field.name])) {
       throw responseError(operation, argv, `${path}.${field.name} is missing or invalid.`);
     }
   }

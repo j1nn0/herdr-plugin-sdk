@@ -162,6 +162,11 @@ console.log(agent, agentText, pane, paneText, panes, workspaces, tabs, renamedTa
 
 `pane.reportMetadata` treats a zero exit code as success and ignores successful stdout. `ttlMs` must be an integer from 1 through 86400000. The SDK rejects blank `source` values but passes blank titles and empty token values through unchanged. Token syntax/count limits and other server-side metadata limits remain Herdr-owned. Tab and workspace rename labels are passed as one argv token, including empty strings or labels with spaces.
 
+
+In v0.4, `pane.processInfo(paneId)` always uses the explicit, non-blank `paneId` as `--pane`; it does not use `--current`. The result requires `pane_id`; `shell_pid` and `foreground_process_group_id` are optional and nullable, and `foreground_processes` is optional. Each process requires integer `pid` and string `name`; `argv0`, `argv`, `cmdline`, and `cwd` are optional and nullable. Unknown fields are preserved. The operation uses the default 10,000 ms typed-operation timeout.
+
+`tab.create(options?)` accepts optional `workspaceId`, `cwd`, `label`, `env`, and `focus`. Workspace and cwd values must be non-blank; labels, including empty or whitespace-only labels, are passed verbatim. Environment keys must be non-blank and contain no `=`, and values must be strings; each pair is passed as one `--env KEY=VALUE` value token, which is redacted from SDK error argv. Explicit focus emits `--focus` or `--no-focus`; omission leaves Herdr's false default in effect. The CLI's `root_pane` is returned as `rootPane` in `{ tab, rootPane }`; required resource fields are validated and unknown fields are preserved. The operation uses the default 10,000 ms typed-operation timeout.
+
 Herdr silently clamps `--lines` to approximately 1000 rows on the verified
 Herdr releases. This upstream behavior is undocumented; the SDK intentionally
 does not reject or normalize larger non-negative integer values, and exposes no

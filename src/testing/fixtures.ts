@@ -1,4 +1,4 @@
-import type { Agent, Pane, Tab, Workspace } from '../client/types.js';
+import type { Agent, Pane, PaneProcessInfo, Tab, Workspace } from '../client/types.js';
 import type { PluginContext, PaneAgentStatusChangedData } from '../runtime/types.js';
 /* oxlint-disable max-lines */
 
@@ -117,6 +117,37 @@ export function createPaneGetOutputFixture(overrides: OutputFixtureOverrides<Pan
   };
 }
 
+/** Builds a successful `pane process-info` CLI output envelope. */
+export function createPaneProcessInfoOutputFixture(
+  overrides: OutputFixtureOverrides<PaneProcessInfo> = {},
+): {
+  readonly id: string;
+  readonly result: { readonly type: 'pane_process_info'; readonly process_info: PaneProcessInfo };
+} {
+  return {
+    id: overrides.id ?? 'fixture:pane:process-info',
+    result: {
+      type: 'pane_process_info',
+      process_info: {
+        pane_id: PANE_ID,
+        shell_pid: 4200,
+        foreground_process_group_id: 4200,
+        foreground_processes: [
+          {
+            pid: 4201,
+            name: 'node',
+            argv0: 'node',
+            argv: ['node', 'plugin.js'],
+            cmdline: 'node plugin.js',
+            cwd: '/workspace',
+          },
+        ],
+        ...overrides.payload,
+      },
+    },
+  };
+}
+
 /** Builds a successful `workspace list` CLI output envelope. */
 export function createWorkspaceListOutputFixture(
   overrides: OutputFixtureOverrides<Workspace> = {},
@@ -143,6 +174,27 @@ export function createTabListOutputFixture(overrides: OutputFixtureOverrides<Tab
     result: {
       type: 'tab_list',
       tabs: [createTabFixture(overrides.payload)],
+    },
+  };
+}
+
+/** Builds a successful `tab create` CLI output envelope. */
+export function createTabCreateOutputFixture(
+  overrides: {
+    readonly tab?: Partial<Tab>;
+    readonly rootPane?: Partial<Pane>;
+    readonly id?: string;
+  } = {},
+): {
+  readonly id: string;
+  readonly result: { readonly type: 'tab_created'; readonly tab: Tab; readonly root_pane: Pane };
+} {
+  return {
+    id: overrides.id ?? 'fixture:tab:create',
+    result: {
+      type: 'tab_created',
+      tab: createTabFixture(overrides.tab),
+      root_pane: createPaneFixture(overrides.rootPane),
     },
   };
 }

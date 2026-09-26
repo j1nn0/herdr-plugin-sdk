@@ -6,6 +6,8 @@ export type {
   HerdrClient,
   HerdrClientOptions,
   Pane,
+  PaneForegroundProcess,
+  PaneProcessInfo,
   PaneReportMetadataOptions,
   PaneScroll,
   PluginPaneDirection,
@@ -15,6 +17,8 @@ export type {
   ReadOptions,
   ReadSource,
   Tab,
+  TabCreateOptions,
+  TabCreateResult,
   Workspace,
 } from './types.js';
 export type { HerdrCommandExecutor, HerdrCommandRequest, HerdrCommandResult } from './executor.js';

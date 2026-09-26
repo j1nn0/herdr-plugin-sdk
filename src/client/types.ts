@@ -50,6 +50,25 @@ export interface Pane {
   readonly tokens?: unknown;
   readonly [key: string]: unknown;
 }
+/** A foreground process reported by the Herdr CLI. */
+export interface PaneForegroundProcess {
+  readonly pid: number;
+  readonly name: string;
+  readonly argv0?: string | null;
+  readonly argv?: readonly string[] | null;
+  readonly cmdline?: string | null;
+  readonly cwd?: string | null;
+  readonly [key: string]: unknown;
+}
+
+/** Process information returned for a pane by the Herdr CLI. */
+export interface PaneProcessInfo {
+  readonly pane_id: string;
+  readonly shell_pid?: number | null;
+  readonly foreground_process_group_id?: number | null;
+  readonly foreground_processes?: readonly PaneForegroundProcess[];
+  readonly [key: string]: unknown;
+}
 
 /** Agent session metadata returned as part of an agent or pane payload. */
 export interface AgentSession {
@@ -93,6 +112,20 @@ export interface Tab {
   readonly agent_status: AgentStatus;
   readonly focused: boolean;
   readonly [key: string]: unknown;
+}
+/** Options for creating a Herdr tab. */
+export interface TabCreateOptions {
+  readonly workspaceId?: string;
+  readonly cwd?: string;
+  readonly label?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly focus?: boolean;
+}
+
+/** Tab and root pane returned after creating a tab. */
+export interface TabCreateResult {
+  readonly tab: Tab;
+  readonly rootPane: Pane;
 }
 
 /** Terminal content source accepted by a Herdr read command. */
@@ -162,6 +195,8 @@ export interface HerdrClient {
     read(paneId: string, options?: ReadOptions): Promise<string>;
     /** Reports display-only metadata for a pane. */
     reportMetadata(paneId: string, options: PaneReportMetadataOptions): Promise<void>;
+    /** Gets process information for an explicit pane id. */
+    processInfo(paneId: string): Promise<PaneProcessInfo>;
   };
   readonly plugin: {
     readonly pane: {
@@ -180,6 +215,8 @@ export interface HerdrClient {
   readonly tab: {
     /** Lists tabs, optionally limited to one workspace. */
     list(options?: { readonly workspaceId?: string }): Promise<Tab[]>;
+    /** Creates a tab and returns its tab and root pane information. */
+    create(options?: TabCreateOptions): Promise<TabCreateResult>;
     /** Renames a tab. */
     rename(tabId: string, label: string): Promise<Tab>;
   };

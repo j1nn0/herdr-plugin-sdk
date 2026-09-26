@@ -7,8 +7,12 @@ import type {
   HerdrCommandRequest,
   HerdrCommandResult,
   Pane,
+  PaneForegroundProcess,
+  PaneProcessInfo,
   PluginContext,
   Tab,
+  TabCreateOptions,
+  TabCreateResult,
   Workspace,
 } from '../src/index.js';
 import {
@@ -26,6 +30,7 @@ import {
   createAgentFixture,
   createCliErrorOutputFixture,
   createPaneGetOutputFixture,
+  createPaneProcessInfoOutputFixture,
   createPaneFixture,
   createPaneListOutputFixture,
   createPluginContextFixture,
@@ -35,6 +40,7 @@ import {
   createPluginPaneOpenOutputFixture,
   createRecordingExecutor,
   createTabListOutputFixture,
+  createTabCreateOutputFixture,
   createTabFixture,
   createTabRenameOutputFixture,
   createWorkspaceListOutputFixture,
@@ -47,6 +53,7 @@ import {
   type MockHerdrClientSetup,
   type RecordedHerdrCommand,
 } from '../src/testing/index.js';
+import * as testing from '../src/testing/index.js';
 
 describe('mock Herdr client', () => {
   it('rejects unconfigured agent and pane lookups and reads with not-found errors', async () => {
@@ -480,7 +487,7 @@ async function capture(action: () => Promise<unknown>): Promise<unknown> {
   throw new Error('Expected action to reject.');
 }
 
-describe('v0.3 testing helpers', () => {
+describe('v0.3 and v0.4 testing helpers', () => {
   it('builds protocol-shaped fixtures with pinned result discriminators and override payloads', () => {
     const pane = createPaneFixture({ pane_id: 'pane-opened', label: 'Widget' });
     const open = createPluginPaneOpenOutputFixture({ id: 'custom-open', payload: pane });
@@ -534,6 +541,69 @@ describe('v0.3 testing helpers', () => {
     ]) {
       expect(serializeCliOutput(fixture)).toBe(`${JSON.stringify(fixture)}\n`);
     }
+  });
+
+  it('exports v0.4 fixtures and types from the public testing and package entrypoints', () => {
+    const processInfo = createPaneProcessInfoOutputFixture({
+      id: 'custom-process-info',
+      payload: { pane_id: 'process-pane', future_field: { preserved: true } },
+    });
+    expect(processInfo).toMatchObject({
+      id: 'custom-process-info',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'process-pane', future_field: { preserved: true } },
+      },
+    });
+    expectTypeOf(processInfo.result.type).toEqualTypeOf<'pane_process_info'>();
+
+    const tabCreate = createTabCreateOutputFixture({
+      id: 'custom-tab-create',
+      tab: { label: 'Created tab' },
+      rootPane: { pane_id: 'root-pane' },
+    });
+    expect(tabCreate).toMatchObject({
+      id: 'custom-tab-create',
+      result: {
+        type: 'tab_created',
+        tab: { label: 'Created tab' },
+        root_pane: { pane_id: 'root-pane' },
+      },
+    });
+    expectTypeOf(tabCreate.result.type).toEqualTypeOf<'tab_created'>();
+    expect(createPaneProcessInfoOutputFixture).toBeTypeOf('function');
+    expect(createTabCreateOutputFixture).toBeTypeOf('function');
+    expect(testing).not.toHaveProperty('createPaneProcessInfoFixture');
+    expect(testing).not.toHaveProperty('createForegroundProcessFixture');
+    expect(testing).not.toHaveProperty('createProcessInfoFixture');
+    expect(testing).not.toHaveProperty('createProcessFixture');
+
+    const foregroundProcess: PaneForegroundProcess = {
+      pid: 123,
+      name: 'node',
+      argv: null,
+      future_process_field: true,
+    };
+    const paneProcessInfo: PaneProcessInfo = {
+      pane_id: 'p',
+      foreground_processes: [foregroundProcess],
+    };
+    const tabOptions: TabCreateOptions = {
+      workspaceId: 'w',
+      cwd: '/workspace',
+      label: '',
+      env: { MODE: 'test' },
+      focus: false,
+    };
+    const tabResult: TabCreateResult = {
+      tab: createTabFixture(),
+      rootPane: createPaneFixture(),
+    };
+    expectTypeOf(paneProcessInfo).toEqualTypeOf<PaneProcessInfo>();
+    expectTypeOf(tabOptions).toEqualTypeOf<TabCreateOptions>();
+    expectTypeOf(tabResult).toEqualTypeOf<TabCreateResult>();
+    expect(serializeCliOutput(processInfo)).toBe(`${JSON.stringify(processInfo)}\n`);
+    expect(serializeCliOutput(tabCreate)).toBe(`${JSON.stringify(tabCreate)}\n`);
   });
 
   it('records binary path, argv, timeout, and zero-based sync-or-async responder indexes', async () => {
@@ -736,6 +806,65 @@ describe('v0.3 testing helpers', () => {
     expect((missingWorkspace as Error).message).toContain('workspaceRenames');
   });
 
+  it('supports process-info lookups and tab creation with defensive snapshots', async () => {
+    const processInfo = createPaneProcessInfoOutputFixture().result.process_info;
+    const configuredTab = createTabFixture({ tab_id: 'created-tab' });
+    const configuredRootPane = createPaneFixture({ pane_id: 'created-root' });
+    const configuredResult: TabCreateResult = { tab: configuredTab, rootPane: configuredRootPane };
+    const processFailure = new Error('configured process-info failure');
+    const options = { workspaceId: 'workspace-1', label: 'Created', env: { MODE: 'ready' } };
+    const client = createMockHerdrClient({
+      paneProcessInfo: { 'pane-1': processInfo, 'failed-pane': processFailure },
+      tabCreate: configuredResult,
+    });
+
+    const processInfoCopy = await client.pane.processInfo('pane-1');
+    expect(processInfoCopy).toEqual(processInfo);
+    expect(processInfoCopy).not.toBe(processInfo);
+    const processes = processInfoCopy.foreground_processes as PaneForegroundProcess[];
+    processes[0]!.name = 'mutated';
+    (processes[0]!.argv as string[]).push('mutated');
+    expect(processInfo.foreground_processes?.[0]?.name).toBe('node');
+    expect(processInfo.foreground_processes?.[0]?.argv).not.toContain('mutated');
+
+    await expect(client.pane.processInfo('absent-pane')).rejects.toMatchObject({
+      operation: 'pane.processInfo',
+      code: 'pane_not_found',
+      argv: ['pane', 'process-info', '--pane', 'absent-pane'],
+    });
+    await expect(client.pane.processInfo('failed-pane')).rejects.toBe(processFailure);
+
+    const createdPromise = client.tab.create(options);
+    options.env.MODE = 'mutated';
+    const created = await createdPromise;
+    expect(created).toEqual(configuredResult);
+    expect(created.tab).not.toBe(configuredTab);
+    expect(created.rootPane).not.toBe(configuredRootPane);
+    (created.tab as { tab_id: string }).tab_id = 'mutated-tab';
+    (created.rootPane as { pane_id: string }).pane_id = 'mutated-pane';
+    expect(configuredTab.tab_id).toBe('created-tab');
+    expect(configuredRootPane.pane_id).toBe('created-root');
+    expect(client.calls).toEqual([
+      { operation: 'pane.processInfo', target: 'pane-1', options: null },
+      { operation: 'pane.processInfo', target: 'absent-pane', options: null },
+      { operation: 'pane.processInfo', target: 'failed-pane', options: null },
+      {
+        operation: 'tab.create',
+        target: null,
+        options: { workspaceId: 'workspace-1', label: 'Created', env: { MODE: 'ready' } },
+      },
+    ]);
+
+    const tabFailure = new Error('configured tab creation failure');
+    const failedClient = createMockHerdrClient({ tabCreate: tabFailure });
+    await expect(failedClient.tab.create()).rejects.toBe(tabFailure);
+
+    const missingClient = createMockHerdrClient();
+    const missingError = await capture(() => missingClient.tab.create());
+    expect(missingError).toBeInstanceOf(HerdrError);
+    expect((missingError as Error).message).toContain('tabCreate');
+    expect(missingClient.calls).toEqual([{ operation: 'tab.create', target: null, options: null }]);
+  });
   it('keeps both factories assignable to the expanded required client contracts', () => {
     const typed: HerdrClient = createHerdrClient();
     const mock: MockHerdrClient = createMockHerdrClient();
@@ -743,6 +872,24 @@ describe('v0.3 testing helpers', () => {
     expectTypeOf(typed).toMatchTypeOf<HerdrClient>();
     expectTypeOf(mock).toMatchTypeOf<MockHerdrClient>();
     expectTypeOf(mockAsClient).toMatchTypeOf<HerdrClient>();
+    expect(typed.agent.get).toBeTypeOf('function');
+    expect(mock.agent.get).toBeTypeOf('function');
+    expect(typed.agent.read).toBeTypeOf('function');
+    expect(mock.agent.read).toBeTypeOf('function');
+    expect(typed.pane.get).toBeTypeOf('function');
+    expect(mock.pane.get).toBeTypeOf('function');
+    expect(typed.pane.read).toBeTypeOf('function');
+    expect(mock.pane.read).toBeTypeOf('function');
+    expect(typed.workspace.list).toBeTypeOf('function');
+    expect(mock.workspace.list).toBeTypeOf('function');
+    expect(typed.tab.list).toBeTypeOf('function');
+    expect(mock.tab.list).toBeTypeOf('function');
+    expect(typed.run).toBeTypeOf('function');
+    expect(mock.run).toBeTypeOf('function');
+    expect(typed.pane.processInfo).toBeTypeOf('function');
+    expect(typed.tab.create).toBeTypeOf('function');
+    expect(mock.pane.processInfo).toBeTypeOf('function');
+    expect(mock.tab.create).toBeTypeOf('function');
     expect(mock.plugin.pane.open).toBeTypeOf('function');
     expect(mock.plugin.pane.close).toBeTypeOf('function');
     expect(mock.pane.list).toBeTypeOf('function');

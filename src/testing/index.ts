@@ -8,6 +8,7 @@ export { createMockHerdrClient } from './mock-client.js';
 export {
   createPaneFixture,
   createPaneGetOutputFixture,
+  createPaneProcessInfoOutputFixture,
   createPaneListOutputFixture,
 } from './fixtures.js';
 export {
@@ -21,6 +22,7 @@ export { createRecordingExecutor } from './recording-executor.js';
 export {
   createTabFixture,
   createTabListOutputFixture,
+  createTabCreateOutputFixture,
   createTabRenameOutputFixture,
 } from './fixtures.js';
 export {

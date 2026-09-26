@@ -5,11 +5,13 @@ import {
   parsePaneListResponse,
   parsePaneReportMetadataResponse,
   parsePaneResponse,
+  parsePaneProcessInfoResponse,
   parsePluginPaneCloseResponse,
   parsePluginPaneOpenResponse,
   parseReadResponse,
   parseRunResponse,
   parseTabRenameResponse,
+  parseTabCreateResponse,
   parseTabResponse,
   parseWorkspaceRenameResponse,
   parseWorkspaceResponse,
@@ -19,8 +21,11 @@ import type {
   HerdrClient,
   HerdrClientOptions,
   PaneReportMetadataOptions,
+  PaneProcessInfo,
   PluginPaneOpenOptions,
   ReadOptions,
+  TabCreateOptions,
+  TabCreateResult,
 } from './types.js';
 
 /* oxlint-disable max-lines */
@@ -105,6 +110,11 @@ function createResourceOperations(
       const argv = buildReadArgv('pane', paneId, readOptions);
       return parseReadResponse(await execute(argv, timeoutMs), 'pane.read', argv, timeoutMs);
     },
+    async processInfo(paneId: string): Promise<PaneProcessInfo> {
+      validateNonBlankString(paneId, 'paneId', 'pane.processInfo');
+      const argv = ['pane', 'process-info', '--pane', paneId];
+      return parsePaneProcessInfoResponse(await execute(argv, timeoutMs), argv, timeoutMs);
+    },
     async reportMetadata(paneId: string, reportOptions: PaneReportMetadataOptions) {
       const argv = buildPaneReportMetadataArgv(paneId, reportOptions);
       return parsePaneReportMetadataResponse(await execute(argv, timeoutMs), argv, timeoutMs);
@@ -137,6 +147,11 @@ function createListOperations(
       }
       return parseTabResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
+    async create(options: TabCreateOptions = {}): Promise<TabCreateResult> {
+      const argv = buildTabCreateArgv(options);
+      const result = await execute(argv, timeoutMs);
+      return parseTabCreateResponse(result, redactEnvironment(argv), timeoutMs);
+    },
     async rename(tabId: string, label: string) {
       const argv = ['tab', 'rename', tabId, label];
       return parseTabRenameResponse(await execute(argv, timeoutMs), argv, timeoutMs);
@@ -156,7 +171,7 @@ function createPluginPaneOperations(
         async open(options: PluginPaneOpenOptions) {
           const argv = buildPluginPaneOpenArgv(options);
           const result = await execute(argv, timeoutMs);
-          return parsePluginPaneOpenResponse(result, redactPluginPaneEnvironment(argv), timeoutMs);
+          return parsePluginPaneOpenResponse(result, redactEnvironment(argv), timeoutMs);
         },
         async close(paneId: string) {
           const argv = ['plugin', 'pane', 'close', paneId];
@@ -201,7 +216,7 @@ function buildPluginPaneOpenArgv(options: PluginPaneOpenOptions): string[] {
     argv.push('--direction', options.direction);
   }
   appendOptionalNonBlank(argv, '--cwd', options.cwd, 'cwd', 'plugin.pane.open');
-  appendPluginEnvironment(argv, options.env);
+  appendEnvironment(argv, options.env, 'plugin.pane.open');
   if (options.focus !== undefined) {
     if (typeof options.focus !== 'boolean') {
       throw invalidOption('plugin.pane.open', 'focus must be a boolean.');
@@ -211,31 +226,47 @@ function buildPluginPaneOpenArgv(options: PluginPaneOpenOptions): string[] {
   return argv;
 }
 
-function appendPluginEnvironment(
+function buildTabCreateArgv(options: TabCreateOptions): string[] {
+  const operation = 'tab.create';
+  const argv = ['tab', 'create'];
+  appendOptionalNonBlank(argv, '--workspace', options.workspaceId, 'workspaceId', operation);
+  appendOptionalNonBlank(argv, '--cwd', options.cwd, 'cwd', operation);
+  if (options.label !== undefined) {
+    argv.push('--label', options.label);
+  }
+  appendEnvironment(argv, options.env, operation);
+  if (options.focus !== undefined) {
+    if (typeof options.focus !== 'boolean') {
+      throw invalidOption(operation, 'focus must be a boolean.');
+    }
+    argv.push(options.focus ? '--focus' : '--no-focus');
+  }
+  return argv;
+}
+
+function appendEnvironment(
   argv: string[],
   env: Readonly<Record<string, string>> | undefined,
+  operation: string,
 ): void {
   if (env === undefined) {
     return;
   }
   if (typeof env !== 'object' || env === null || Array.isArray(env)) {
-    throw invalidOption('plugin.pane.open', 'env must be a string record.');
+    throw invalidOption(operation, 'env must be a string record.');
   }
   for (const [key, value] of Object.entries(env)) {
     if (key.trim() === '' || key.includes('=')) {
-      throw invalidOption(
-        'plugin.pane.open',
-        'env keys must be non-blank and must not contain "=".',
-      );
+      throw invalidOption(operation, 'env keys must be non-blank and must not contain "=".');
     }
     if (typeof value !== 'string') {
-      throw invalidOption('plugin.pane.open', 'env values must be strings.');
+      throw invalidOption(operation, 'env values must be strings.');
     }
     argv.push('--env', `${key}=${value}`);
   }
 }
 
-function redactPluginPaneEnvironment(argv: readonly string[]): string[] {
+function redactEnvironment(argv: readonly string[]): string[] {
   const diagnosticArgv = [...argv];
   for (let index = 0; index < diagnosticArgv.length - 1; index += 1) {
     if (diagnosticArgv[index] === '--env') {

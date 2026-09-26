@@ -13,15 +13,18 @@ import {
   type PluginPaneOpenOptions,
   type PluginPanePlacement,
   type Tab,
+  type TabCreateOptions,
   type Workspace,
 } from '../src/index.js';
 import {
   createCliErrorOutputFixture,
   createPaneFixture,
+  createPaneProcessInfoOutputFixture,
   createPluginPaneCloseOutputFixture,
   createPluginPaneOpenOutputFixture,
   createRecordingExecutor,
   createTabFixture,
+  createTabCreateOutputFixture,
   createTabRenameOutputFixture,
   createWorkspaceFixture,
   createWorkspaceRenameOutputFixture,
@@ -538,11 +541,328 @@ describe('tab.rename and workspace.rename', () => {
       env: {},
       executor: createRecordingExecutor().executor,
     });
+    expect(client.agent.get).toBeTypeOf('function');
+    expect(client.agent.read).toBeTypeOf('function');
+    expect(client.pane.get).toBeTypeOf('function');
+    expect(client.pane.list).toBeTypeOf('function');
+    expect(client.pane.read).toBeTypeOf('function');
+    expect(client.pane.processInfo).toBeTypeOf('function');
+    expect(client.pane.reportMetadata).toBeTypeOf('function');
     expect(client.plugin.pane.open).toBeTypeOf('function');
     expect(client.plugin.pane.close).toBeTypeOf('function');
-    expect(client.pane.list).toBeTypeOf('function');
-    expect(client.pane.reportMetadata).toBeTypeOf('function');
-    expect(client.tab.rename).toBeTypeOf('function');
+    expect(client.workspace.list).toBeTypeOf('function');
     expect(client.workspace.rename).toBeTypeOf('function');
+    expect(client.tab.list).toBeTypeOf('function');
+    expect(client.tab.create).toBeTypeOf('function');
+    expect(client.tab.rename).toBeTypeOf('function');
+    expect(client.run).toBeTypeOf('function');
+  });
+});
+
+describe('pane.processInfo', () => {
+  it('uses an explicit pane id verbatim and parses process information with extras', async () => {
+    const fixture = createPaneProcessInfoOutputFixture({
+      payload: {
+        pane_id: ' pane id ',
+        shell_pid: null,
+        foreground_process_group_id: null,
+        foreground_processes: [
+          {
+            pid: 12,
+            name: 'node',
+            argv0: null,
+            argv: ['node', 'plugin.js'],
+            cmdline: 'node plugin.js',
+            cwd: '/workspace',
+            future_process_field: { preserved: true },
+          },
+          {
+            pid: 13,
+            name: 'shell',
+            argv: null,
+            cmdline: null,
+            cwd: null,
+          },
+        ],
+        future_process_info_field: ['preserved'],
+      },
+    });
+    const { client, recording } = clientFor(successEnvelope(fixture));
+
+    await expect(client.pane.processInfo(' pane id ')).resolves.toEqual(
+      fixture.result.process_info,
+    );
+    expect(recording.calls[0]?.argv).toEqual(['pane', 'process-info', '--pane', ' pane id ']);
+    expect(recording.calls[0]?.timeoutMs).toBe(10_000);
+  });
+
+  it.each(['', '  ', '\t\n'])('rejects a blank pane id before execution: %j', async (paneId) => {
+    const { client, recording } = clientFor(successEnvelope(createPaneProcessInfoOutputFixture()));
+    await expect(client.pane.processInfo(paneId)).rejects.toMatchObject({
+      message: 'Invalid pane.processInfo option: paneId must be a non-blank string.',
+    });
+    expect(recording.calls).toEqual([]);
+  });
+
+  it('accepts omitted nullable fields and an empty process list', async () => {
+    const { client } = clientFor(
+      successEnvelope({
+        id: 'process-info',
+        result: {
+          type: 'pane_process_info',
+          process_info: { pane_id: 'p', foreground_processes: [] },
+        },
+      }),
+    );
+    await expect(client.pane.processInfo('p')).resolves.toEqual({
+      pane_id: 'p',
+      foreground_processes: [],
+    });
+  });
+
+  it('accepts a missing foreground process list without synthesizing one', async () => {
+    const { client } = clientFor(
+      successEnvelope({
+        id: 'process-info',
+        result: { type: 'pane_process_info', process_info: { pane_id: 'p' } },
+      }),
+    );
+    await expect(client.pane.processInfo('p')).resolves.toEqual({ pane_id: 'p' });
+  });
+
+  it.each([
+    { id: 'wrong-type', result: { type: 'pane_info', process_info: { pane_id: 'p' } } },
+    { id: 'missing-process-info', result: { type: 'pane_process_info' } },
+    { id: 'non-object-process-info', result: { type: 'pane_process_info', process_info: null } },
+    { id: 'missing-pane-id', result: { type: 'pane_process_info', process_info: {} } },
+    { id: 'bad-pane-id', result: { type: 'pane_process_info', process_info: { pane_id: 4 } } },
+    {
+      id: 'bad-shell-pid',
+      result: { type: 'pane_process_info', process_info: { pane_id: 'p', shell_pid: 1.5 } },
+    },
+    {
+      id: 'bad-group-id',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'p', foreground_process_group_id: '12' },
+      },
+    },
+    {
+      id: 'bad-process-list',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'p', foreground_processes: null },
+      },
+    },
+    {
+      id: 'bad-process-object',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'p', foreground_processes: [null] },
+      },
+    },
+    {
+      id: 'bad-process-pid',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'p', foreground_processes: [{ pid: 1.2, name: 'node' }] },
+      },
+    },
+    {
+      id: 'bad-process-name',
+      result: {
+        type: 'pane_process_info',
+        process_info: { pane_id: 'p', foreground_processes: [{ pid: 1 }] },
+      },
+    },
+    {
+      id: 'bad-process-argv',
+      result: {
+        type: 'pane_process_info',
+        process_info: {
+          pane_id: 'p',
+          foreground_processes: [{ pid: 1, name: 'node', argv: ['node', 2] }],
+        },
+      },
+    },
+    {
+      id: 'bad-process-cwd',
+      result: {
+        type: 'pane_process_info',
+        process_info: {
+          pane_id: 'p',
+          foreground_processes: [{ pid: 1, name: 'node', cwd: false }],
+        },
+      },
+    },
+  ])('rejects malformed process-info response: $id', async (envelope) => {
+    const { client } = clientFor(successEnvelope(envelope));
+    await expect(client.pane.processInfo('p')).rejects.toBeInstanceOf(HerdrResponseError);
+  });
+
+  it('preserves timeout and structured CLI error metadata', async () => {
+    const timedOut = clientFor(success('', { timedOut: true }));
+    await expect(timedOut.client.pane.processInfo('p')).rejects.toMatchObject({
+      operation: 'pane.processInfo',
+      argv: ['pane', 'process-info', '--pane', 'p'],
+      timeoutMs: 10_000,
+    } satisfies Partial<HerdrTimeoutError>);
+
+    const failed = clientFor(errorEnvelope('pane_not_found'));
+    await expect(failed.client.pane.processInfo('p')).rejects.toMatchObject({
+      operation: 'pane.processInfo',
+      code: 'pane_not_found',
+    } satisfies Partial<HerdrCliError>);
+  });
+});
+
+describe('tab.create', () => {
+  it('creates with no options and returns the camel-cased rootPane result', async () => {
+    const fixture = createTabCreateOutputFixture({
+      tab: { future_tab_field: { preserved: true } },
+      rootPane: { future_pane_field: ['preserved'] },
+    });
+    const { client, recording } = clientFor(successEnvelope(fixture));
+
+    const created = await client.tab.create();
+    expect(created).toEqual({ tab: fixture.result.tab, rootPane: fixture.result.root_pane });
+    expect(created).not.toHaveProperty('root_pane');
+    expect(recording.calls[0]?.argv).toEqual(['tab', 'create']);
+    expect(recording.calls[0]?.timeoutMs).toBe(10_000);
+  });
+
+  it('appends options in deterministic order and preserves blank labels verbatim', async () => {
+    const { client, recording } = clientFor(successEnvelope(createTabCreateOutputFixture()));
+    await client.tab.create({
+      workspaceId: ' workspace ',
+      cwd: ' /tmp/work ',
+      label: ' \t ',
+      env: { ' KEY ': 'first value', 'A B': 'spaced key', SECOND: '' },
+      focus: false,
+    });
+    expect(recording.calls[0]?.argv).toEqual([
+      'tab',
+      'create',
+      '--workspace',
+      ' workspace ',
+      '--cwd',
+      ' /tmp/work ',
+      '--label',
+      ' \t ',
+      '--env',
+      ' KEY =first value',
+      '--env',
+      'A B=spaced key',
+      '--env',
+      'SECOND=',
+      '--no-focus',
+    ]);
+  });
+
+  it.each(['', ' \t '])('passes empty and whitespace-only labels verbatim: %j', async (label) => {
+    const { client, recording } = clientFor(successEnvelope(createTabCreateOutputFixture()));
+    await client.tab.create({ label });
+    expect(recording.calls[0]?.argv).toEqual(['tab', 'create', '--label', label]);
+  });
+
+  it.each([
+    [undefined, undefined],
+    [true, '--focus'],
+    [false, '--no-focus'],
+  ] as const)('emits the selected focus flag: %s', async (focus, expectedFlag) => {
+    const { client, recording } = clientFor(successEnvelope(createTabCreateOutputFixture()));
+    await client.tab.create(focus === undefined ? {} : { focus });
+    const argv = recording.calls[0]?.argv ?? [];
+    if (expectedFlag === undefined) {
+      expect(argv).not.toContain('--focus');
+      expect(argv).not.toContain('--no-focus');
+    } else {
+      expect(argv).toContain(expectedFlag);
+    }
+  });
+
+  it('accepts empty environment records and rejects invalid option values before execution', async () => {
+    const empty = clientFor(successEnvelope(createTabCreateOutputFixture()));
+    await empty.client.tab.create({ env: {} });
+    expect(empty.recording.calls[0]?.argv).toEqual(['tab', 'create']);
+
+    const invalidOptions: unknown[] = [
+      { workspaceId: '' },
+      { workspaceId: ' \t ' },
+      { cwd: '' },
+      { cwd: '\n' },
+      { env: null },
+      { env: [] },
+      { env: 'not a record' },
+      { env: { '': 'value' } },
+      { env: { ' \t ': 'value' } },
+      { env: { '   ': 'value' } },
+      { env: { '\t': 'value' } },
+      { env: { 'BAD=KEY': 'value' } },
+      { env: { GOOD: 1 } },
+      { focus: 'yes' },
+    ];
+    for (const options of invalidOptions) {
+      const { client, recording } = clientFor(successEnvelope(createTabCreateOutputFixture()));
+      await expect(client.tab.create(options as TabCreateOptions)).rejects.toBeInstanceOf(
+        HerdrError,
+      );
+      expect(recording.calls).toEqual([]);
+    }
+  });
+
+  it.each([
+    { id: 'wrong-type', result: { type: 'tab_list', tabs: [] } },
+    { id: 'missing-tab', result: { type: 'tab_created', root_pane: createPaneFixture() } },
+    {
+      id: 'malformed-tab',
+      result: {
+        type: 'tab_created',
+        tab: { ...createTabFixture(), number: 1.5 },
+        root_pane: createPaneFixture(),
+      },
+    },
+    { id: 'missing-root-pane', result: { type: 'tab_created', tab: createTabFixture() } },
+    {
+      id: 'malformed-root-pane',
+      result: {
+        type: 'tab_created',
+        tab: createTabFixture(),
+        root_pane: { ...createPaneFixture(), agent_status: 'unknown-status' },
+      },
+    },
+    {
+      id: 'malformed-tab-session',
+      result: {
+        type: 'tab_created',
+        tab: { ...createTabFixture(), agent_session: { source: 'runtime' } },
+        root_pane: createPaneFixture(),
+      },
+    },
+  ])('rejects malformed tab-created response: $id', async (envelope) => {
+    const { client } = clientFor(successEnvelope(envelope));
+    await expect(client.tab.create()).rejects.toBeInstanceOf(HerdrResponseError);
+  });
+
+  it('redacts environment arguments from errors while executing the unredacted argv', async () => {
+    const failed = clientFor(errorEnvelope('tab_create_failed'));
+    let capturedError: unknown;
+    try {
+      await failed.client.tab.create({ env: { SECRET: 'do-not-leak' } });
+    } catch (error: unknown) {
+      capturedError = error;
+    }
+    expect(capturedError).toBeInstanceOf(HerdrCliError);
+    const cliError = capturedError as HerdrCliError;
+    expect(cliError.operation).toBe('tab.create');
+    expect(cliError.argv).toEqual(['tab', 'create', '--env', '<redacted>']);
+    expect(cliError.argv).not.toContain('SECRET=do-not-leak');
+    expect(cliError.message).not.toContain('do-not-leak');
+    expect(failed.recording.calls[0]?.argv).toEqual([
+      'tab',
+      'create',
+      '--env',
+      'SECRET=do-not-leak',
+    ]);
   });
 });

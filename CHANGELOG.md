@@ -8,6 +8,15 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+### Added
+
+- Typed `pane.processInfo()` and `tab.create()` client operations, with `PaneForegroundProcess`, `PaneProcessInfo`, `TabCreateOptions`, and `TabCreateResult`.
+- `createPaneProcessInfoOutputFixture()` and `createTabCreateOutputFixture()` testing fixtures, plus mock-client support for both operations.
+
+### Changed
+
+- `HerdrClient` now requires `pane.processInfo()` and `tab.create()`, which is source-breaking for manual client implementers. Clients created by `createHerdrClient()` and `createMockHerdrClient()` need no migration.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added
