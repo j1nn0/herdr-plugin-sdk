@@ -132,6 +132,7 @@ const readOptions: ReadOptions = {
 };
 
 const agent = await client.agent.get('agent-target');
+const agents = await client.agent.list();
 const agentText = await client.agent.read('agent-target', readOptions);
 const pane = await client.pane.get('workspace:pane');
 const paneText = await client.pane.read('workspace:pane', {
@@ -155,12 +156,16 @@ await client.pane.reportMetadata(pluginPane.pane_id, {
 });
 await client.plugin.pane.close(pluginPane.pane_id);
 
-console.log(agent, agentText, pane, paneText, panes, workspaces, tabs, renamedTab, renamedWorkspace);
+console.log(agent, agents, agentText, pane, paneText, panes, workspaces, tabs, renamedTab, renamedWorkspace);
 ```
 
 `plugin.pane.open` accepts the six `PluginPanePlacement` contract values (`overlay`, `popup`, `split`, `tab`, `zoomed`, and `fullscreen`). The CLI's `--help` output can under-report supported placements; the operation contract is described by `herdr api schema --json`. The SDK does not set focus unless `focus` is provided: `true` emits `--focus`, `false` emits `--no-focus`, and omission leaves the CLI default in effect. The CLI and socket APIs have different focus defaults, so the CLI default is intentionally preserved. Width and height are not typed options; pass supported sizing flags through `run()` when needed.
 
+`agent.list()` takes no options and returns `Agent[]` from the local/default `herdr agent list` command. It preserves Herdr's item order without sorting; unknown fields are preserved and required fields are validated. The typed method does not model `--machine`. It uses the default 10,000 ms typed-operation timeout.
+
 `pane.reportMetadata` treats a zero exit code as success and ignores successful stdout. `ttlMs` must be an integer from 1 through 86400000. The SDK rejects blank `source` values but passes blank titles and empty token values through unchanged. Token syntax/count limits and other server-side metadata limits remain Herdr-owned. Tab and workspace rename labels are passed as one argv token, including empty strings or labels with spaces.
+
+`workspace.reportMetadata(workspaceId, options)` requires a non-blank workspace ID and non-blank `source`, plus at least one token set or clear. Its dedicated `WorkspaceReportMetadataOptions` accepts `tokens`, `clearTokens`, and `ttlMs` (no title fields). Empty token values are passed through; clear-token names are deduplicated, and the same case-sensitive token name cannot be both set and cleared in one report. `ttlMs` is an integer modifier from 1 through 86400000 and does not count as a token change, so a TTL-only request is rejected before spawning the CLI. Successful stdout is ignored. Herdr owns token syntax and server-side limits; `workspace_not_found` remains a `HerdrCliError` for the caller's policy. The operation uses the default 10,000 ms typed-operation timeout.
 
 
 In v0.4, `pane.processInfo(paneId)` always uses the explicit, non-blank `paneId` as `--pane`; it does not use `--current`. The result requires `pane_id`; `shell_pid` and `foreground_process_group_id` are optional and nullable, and `foreground_processes` is optional. Each process requires integer `pid` and string `name`; `argv0`, `argv`, `cmdline`, and `cwd` are optional and nullable. Unknown fields are preserved. The operation uses the default 10,000 ms typed-operation timeout.

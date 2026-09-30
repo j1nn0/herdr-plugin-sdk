@@ -12,6 +12,7 @@ import type {
   TabCreateOptions,
   TabCreateResult,
   Workspace,
+  WorkspaceReportMetadataOptions,
 } from '../client/types.js';
 
 /* oxlint-disable max-lines */
@@ -20,6 +21,7 @@ import type {
 export interface MockHerdrCall {
   readonly operation:
     | 'agent.get'
+    | 'agent.list'
     | 'agent.read'
     | 'pane.get'
     | 'pane.processInfo'
@@ -33,6 +35,7 @@ export interface MockHerdrCall {
     | 'tab.rename'
     | 'workspace.list'
     | 'workspace.rename'
+    | 'workspace.reportMetadata'
     | 'cli.run';
   readonly target: string | null;
   readonly options: Readonly<Record<string, unknown>> | null;
@@ -43,6 +46,7 @@ export interface MockHerdrCall {
 /** Values used to configure responses from a mock Herdr client. */
 export interface MockHerdrClientSetup {
   readonly agents?: Readonly<Record<string, Agent | Error>>;
+  readonly agentList?: readonly Agent[] | Error;
   readonly panes?: Readonly<Record<string, Pane | Error>>;
   readonly paneProcessInfo?: Readonly<Record<string, PaneProcessInfo | Error>>;
   readonly agentReads?: Readonly<Record<string, string | Error>>;
@@ -53,6 +57,7 @@ export interface MockHerdrClientSetup {
   readonly paneReportMetadataErrors?: Readonly<Record<string, Error>>;
   readonly workspaces?: readonly Workspace[] | Error;
   readonly workspaceRenames?: Readonly<Record<string, Workspace | Error>>;
+  readonly workspaceReportMetadataErrors?: Readonly<Record<string, Error>>;
   readonly tabs?: readonly Tab[] | Error;
   readonly tabRenames?: Readonly<Record<string, Tab | Error>>;
   readonly tabCreate?: TabCreateResult | Error;
@@ -123,6 +128,10 @@ function createAgentOperations(
       recordCall('agent.get', target);
       return resolveLookup(setup.agents?.[target], 'agent.get', argv);
     },
+    list(): Promise<Agent[]> {
+      recordCall('agent.list', null);
+      return resolveList(setup.agentList);
+    },
     read(target: string, options?: ReadOptions): Promise<string> {
       const argv = buildReadArgv('agent', target, options);
       recordCall('agent.read', target, options);
@@ -186,6 +195,11 @@ function createWorkspaceOperations(
     rename(workspaceId: string, label: string): Promise<Workspace> {
       recordCall('workspace.rename', workspaceId, { label });
       return resolveConfigured(setup.workspaceRenames?.[workspaceId], 'workspaceRenames');
+    },
+    reportMetadata(workspaceId: string, options: WorkspaceReportMetadataOptions): Promise<void> {
+      recordCall('workspace.reportMetadata', workspaceId, options);
+      const error = setup.workspaceReportMetadataErrors?.[workspaceId];
+      return error === undefined ? Promise.resolve() : Promise.reject(error);
     },
   };
 }

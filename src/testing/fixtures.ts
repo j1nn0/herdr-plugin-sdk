@@ -103,6 +103,23 @@ export function createAgentGetOutputFixture(overrides: OutputFixtureOverrides<Ag
   };
 }
 
+/** Builds a successful `agent list` CLI output envelope. */
+export function createAgentListOutputFixture(overrides?: {
+  readonly agents?: readonly Partial<Agent>[];
+  readonly id?: string;
+}): {
+  readonly id: string;
+  readonly result: { readonly type: 'agent_list'; readonly agents: readonly Agent[] };
+} {
+  return {
+    id: overrides?.id ?? 'fixture:agent:list',
+    result: {
+      type: 'agent_list',
+      agents: (overrides?.agents ?? [{}]).map((agent) => createAgentFixture(agent)),
+    },
+  };
+}
+
 /** Builds a successful `pane get` CLI output envelope. */
 export function createPaneGetOutputFixture(overrides: OutputFixtureOverrides<Pane> = {}): {
   readonly id: string;

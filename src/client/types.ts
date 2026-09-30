@@ -169,6 +169,14 @@ export interface PaneReportMetadataOptions {
   readonly ttlMs?: number;
 }
 
+/** Options for reporting token metadata for a workspace. */
+export interface WorkspaceReportMetadataOptions {
+  readonly source: string;
+  readonly tokens?: Readonly<Record<string, string>>;
+  readonly clearTokens?: readonly string[];
+  readonly ttlMs?: number;
+}
+
 /** Options for creating a typed Herdr CLI client. */
 export interface HerdrClientOptions {
   readonly binPath?: string;
@@ -183,6 +191,8 @@ export interface HerdrClient {
   readonly agent: {
     /** Gets structured information about an agent target. */
     get(target: string): Promise<Agent>;
+    /** Lists agents visible to the local Herdr CLI. */
+    list(): Promise<Agent[]>;
     /** Reads terminal text associated with an agent target. */
     read(target: string, options?: ReadOptions): Promise<string>;
   };
@@ -211,6 +221,8 @@ export interface HerdrClient {
     list(): Promise<Workspace[]>;
     /** Renames a workspace. */
     rename(workspaceId: string, label: string): Promise<Workspace>;
+    /** Reports token metadata for a workspace. */
+    reportMetadata(workspaceId: string, options: WorkspaceReportMetadataOptions): Promise<void>;
   };
   readonly tab: {
     /** Lists tabs, optionally limited to one workspace. */

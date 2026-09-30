@@ -1,6 +1,7 @@
 import { HerdrError } from '../errors.js';
 import { createExecFileExecutor } from './exec-file.js';
 import {
+  parseAgentListResponse,
   parseAgentResponse,
   parsePaneListResponse,
   parsePaneReportMetadataResponse,
@@ -14,6 +15,7 @@ import {
   parseTabCreateResponse,
   parseTabResponse,
   parseWorkspaceRenameResponse,
+  parseWorkspaceReportMetadataResponse,
   parseWorkspaceResponse,
 } from './parse.js';
 import type { HerdrCommandExecutor } from './executor.js';
@@ -26,6 +28,7 @@ import type {
   ReadOptions,
   TabCreateOptions,
   TabCreateResult,
+  WorkspaceReportMetadataOptions,
 } from './types.js';
 
 /* oxlint-disable max-lines */
@@ -88,6 +91,10 @@ function createResourceOperations(
       const argv = ['agent', 'get', target];
       return parseAgentResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
+    async list() {
+      const argv = ['agent', 'list'];
+      return parseAgentListResponse(await execute(argv, timeoutMs), argv, timeoutMs);
+    },
     async read(target: string, readOptions?: ReadOptions) {
       const argv = buildReadArgv('agent', target, readOptions);
       return parseReadResponse(await execute(argv, timeoutMs), 'agent.read', argv, timeoutMs);
@@ -136,6 +143,10 @@ function createListOperations(
     async rename(workspaceId: string, label: string) {
       const argv = ['workspace', 'rename', workspaceId, label];
       return parseWorkspaceRenameResponse(await execute(argv, timeoutMs), argv, timeoutMs);
+    },
+    async reportMetadata(workspaceId: string, options: WorkspaceReportMetadataOptions) {
+      const argv = buildWorkspaceReportMetadataArgv(workspaceId, options);
+      parseWorkspaceReportMetadataResponse(await execute(argv, timeoutMs), argv, timeoutMs);
     },
   };
 
@@ -300,52 +311,94 @@ function buildPaneReportMetadataArgv(paneId: string, options: PaneReportMetadata
   return argv;
 }
 
+function buildWorkspaceReportMetadataArgv(
+  workspaceId: string,
+  options: WorkspaceReportMetadataOptions,
+): string[] {
+  const operation = 'workspace.reportMetadata';
+  validateNonBlankString(workspaceId, 'workspaceId', operation);
+  validateNonBlankString(options.source, 'source', operation);
+  const { tokenEntries, clearTokens } = validateWorkspaceReportMetadataOptions(options);
+  const argv = ['workspace', 'report-metadata', workspaceId, '--source', options.source];
+  for (const [name, value] of tokenEntries) {
+    argv.push('--token', `${name}=${value}`);
+  }
+  for (const name of clearTokens) {
+    argv.push('--clear-token', name);
+  }
+  if (options.ttlMs !== undefined) {
+    argv.push('--ttl-ms', String(options.ttlMs));
+  }
+  return argv;
+}
+
 function validatePaneReportMetadataOptions(options: PaneReportMetadataOptions): {
   tokenEntries: [string, string][];
   clearTokens: string[];
 } {
-  const tokens = options.tokens;
-  const clearTokens = options.clearTokens ?? [];
   if (options.title !== undefined && options.clearTitle === true) {
     throw invalidOption('pane.reportMetadata', 'title and clearTitle cannot be used together.');
   }
+  const tokenOptions = validateReportMetadataTokenOptions(options, 'pane.reportMetadata');
+  if (
+    options.title === undefined &&
+    options.clearTitle !== true &&
+    tokenOptions.tokenEntries.length === 0 &&
+    tokenOptions.clearTokens.length === 0
+  ) {
+    throw invalidOption('pane.reportMetadata', 'at least one metadata change is required.');
+  }
+  return tokenOptions;
+}
+
+function validateWorkspaceReportMetadataOptions(options: WorkspaceReportMetadataOptions): {
+  tokenEntries: [string, string][];
+  clearTokens: string[];
+} {
+  const operation = 'workspace.reportMetadata';
+  const tokenOptions = validateReportMetadataTokenOptions(options, operation);
+  if (tokenOptions.tokenEntries.length === 0 && tokenOptions.clearTokens.length === 0) {
+    throw invalidOption(operation, 'at least one token change is required.');
+  }
+  return tokenOptions;
+}
+
+function validateReportMetadataTokenOptions(
+  options: {
+    readonly tokens?: Readonly<Record<string, string>>;
+    readonly clearTokens?: readonly string[];
+    readonly ttlMs?: number;
+  },
+  operation: string,
+): { tokenEntries: [string, string][]; clearTokens: string[] } {
+  const tokens = options.tokens;
+  const clearTokens = options.clearTokens ?? [];
   if (
     tokens !== undefined &&
     (typeof tokens !== 'object' || tokens === null || Array.isArray(tokens))
   ) {
-    throw invalidOption('pane.reportMetadata', 'tokens must be a string record.');
+    throw invalidOption(operation, 'tokens must be a string record.');
   }
   if (!Array.isArray(clearTokens)) {
-    throw invalidOption('pane.reportMetadata', 'clearTokens must be an array of strings.');
+    throw invalidOption(operation, 'clearTokens must be an array of strings.');
   }
   if (tokens !== undefined && Object.values(tokens).some((value) => typeof value !== 'string')) {
-    throw invalidOption('pane.reportMetadata', 'token values must be strings.');
+    throw invalidOption(operation, 'token values must be strings.');
   }
   if (clearTokens.some((token) => typeof token !== 'string')) {
-    throw invalidOption('pane.reportMetadata', 'clearTokens must contain only strings.');
+    throw invalidOption(operation, 'clearTokens must contain only strings.');
   }
   if (
     options.ttlMs !== undefined &&
     (!Number.isInteger(options.ttlMs) || options.ttlMs < 1 || options.ttlMs > 86_400_000)
   ) {
-    throw invalidOption('pane.reportMetadata', 'ttlMs must be an integer from 1 through 86400000.');
+    throw invalidOption(operation, 'ttlMs must be an integer from 1 through 86400000.');
   }
 
   const tokenEntries = tokens === undefined ? [] : Object.entries(tokens);
   const uniqueClearTokens = [...new Set(clearTokens)];
   if (uniqueClearTokens.some((token) => Object.hasOwn(tokens ?? {}, token))) {
-    throw invalidOption(
-      'pane.reportMetadata',
-      'a token cannot be set and cleared in the same report.',
-    );
-  }
-  if (
-    options.title === undefined &&
-    options.clearTitle !== true &&
-    tokenEntries.length === 0 &&
-    uniqueClearTokens.length === 0
-  ) {
-    throw invalidOption('pane.reportMetadata', 'at least one metadata change is required.');
+    throw invalidOption(operation, 'a token cannot be set and cleared in the same report.');
   }
   return { tokenEntries, clearTokens: uniqueClearTokens };
 }

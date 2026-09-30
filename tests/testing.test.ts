@@ -14,6 +14,7 @@ import type {
   TabCreateOptions,
   TabCreateResult,
   Workspace,
+  WorkspaceReportMetadataOptions,
 } from '../src/index.js';
 import {
   HerdrCliError,
@@ -27,6 +28,7 @@ import {
 } from '../src/index.js';
 import {
   createAgentGetOutputFixture,
+  createAgentListOutputFixture,
   createAgentFixture,
   createCliErrorOutputFixture,
   createPaneGetOutputFixture,
@@ -196,6 +198,7 @@ describe('mock Herdr client', () => {
   it('returns empty arrays for unconfigured list operations', async () => {
     const client = createMockHerdrClient();
 
+    await expect(client.agent.list()).resolves.toEqual([]);
     await expect(client.workspace.list()).resolves.toEqual([]);
     await expect(client.tab.list()).resolves.toEqual([]);
   });
@@ -272,6 +275,41 @@ describe('testing fixtures', () => {
       id: 'fixture:error',
       error: { code: 'pane_not_found', message: 'Pane "w1G:p404" not found.' },
     });
+  });
+
+  it('builds agent-list output fixtures with defaults, overrides, and forward-compatible fields', () => {
+    const defaultFixture = createAgentListOutputFixture();
+    expect(defaultFixture).toEqual({
+      id: 'fixture:agent:list',
+      result: { type: 'agent_list', agents: [createAgentFixture()] },
+    });
+    expect(defaultFixture.result.agents).toHaveLength(1);
+    expect(defaultFixture.result.agents[0]).not.toHaveProperty('agent_session');
+    expect(createAgentListOutputFixture({ agents: [] }).result.agents).toEqual([]);
+
+    const callerInput: Partial<Agent>[] = [
+      { pane_id: 'first', completion_seq: 30 },
+      { pane_id: 'second', extra_agent_field: { retained: true } },
+    ];
+    const originalInput = structuredClone(callerInput);
+    const overridden = createAgentListOutputFixture({
+      id: 'custom-agent-list',
+      agents: callerInput,
+    });
+    expect(overridden).toMatchObject({
+      id: 'custom-agent-list',
+      result: {
+        type: 'agent_list',
+        agents: [
+          { pane_id: 'first', completion_seq: 30 },
+          { pane_id: 'second', extra_agent_field: { retained: true } },
+        ],
+      },
+    });
+    expect(callerInput).toEqual(originalInput);
+    expect(JSON.parse(serializeCliOutput(overridden))).toEqual(overridden);
+    expect(testing.createAgentListOutputFixture).toBeTypeOf('function');
+    expect(Object.keys(testing).some((name) => /workspace.*metadata/iu.test(name))).toBe(false);
   });
 
   it('supports payload and identifier overrides without mutating them', () => {
@@ -655,6 +693,64 @@ describe('v0.3 and v0.4 testing helpers', () => {
     expect(recording.calls).toEqual([]);
   });
 
+  it('supports agent.list and workspace.reportMetadata in the mock client', async () => {
+    const agents = [
+      createAgentFixture({ pane_id: 'first', completion_seq: 12 }),
+      createAgentFixture({ pane_id: 'second' }),
+    ];
+    const options = {
+      source: 'plugin:example',
+      tokens: { status: 'ready' },
+      clearTokens: ['old-status'],
+    };
+    const reportFailure = new Error('workspace metadata failed');
+    const client = createMockHerdrClient({
+      agentList: agents,
+      workspaceReportMetadataErrors: { 'workspace-1': reportFailure },
+    });
+
+    const listed = await client.agent.list();
+    expect(listed).toEqual(agents);
+    expect(listed).not.toBe(agents);
+    listed.pop();
+    await expect(client.agent.list()).resolves.toEqual(agents);
+    await expect(client.workspace.reportMetadata('workspace-1', options)).rejects.toBe(
+      reportFailure,
+    );
+    await expect(
+      client.workspace.reportMetadata('unconfigured-workspace', {
+        source: 'source',
+        tokens: { k: 'v' },
+      }),
+    ).resolves.toBeUndefined();
+
+    options.tokens.status = 'mutated';
+    options.clearTokens.push('mutated');
+    expect(client.calls).toEqual([
+      { operation: 'agent.list', target: null, options: null },
+      { operation: 'agent.list', target: null, options: null },
+      {
+        operation: 'workspace.reportMetadata',
+        target: 'workspace-1',
+        options: {
+          source: 'plugin:example',
+          tokens: { status: 'ready' },
+          clearTokens: ['old-status'],
+        },
+      },
+      {
+        operation: 'workspace.reportMetadata',
+        target: 'unconfigured-workspace',
+        options: { source: 'source', tokens: { k: 'v' } },
+      },
+    ]);
+
+    const listFailure = new Error('agent list failed');
+    const failingList = createMockHerdrClient({ agentList: listFailure });
+    await expect(failingList.agent.list()).rejects.toBe(listFailure);
+    expect(failingList.calls).toEqual([{ operation: 'agent.list', target: null, options: null }]);
+  });
+
   it('records all new mock operations and defensively copies nested option objects and arrays', async () => {
     const pane = createPaneFixture({ pane_id: 'pane-1' });
     const tab = createTabFixture({ tab_id: 'tab-1' });
@@ -874,28 +970,49 @@ describe('v0.3 and v0.4 testing helpers', () => {
     expectTypeOf(mockAsClient).toMatchTypeOf<HerdrClient>();
     expect(typed.agent.get).toBeTypeOf('function');
     expect(mock.agent.get).toBeTypeOf('function');
+    expect(typed.agent.list).toBeTypeOf('function');
+    expect(mock.agent.list).toBeTypeOf('function');
     expect(typed.agent.read).toBeTypeOf('function');
     expect(mock.agent.read).toBeTypeOf('function');
     expect(typed.pane.get).toBeTypeOf('function');
     expect(mock.pane.get).toBeTypeOf('function');
+    expect(typed.pane.list).toBeTypeOf('function');
+    expect(mock.pane.list).toBeTypeOf('function');
     expect(typed.pane.read).toBeTypeOf('function');
     expect(mock.pane.read).toBeTypeOf('function');
+    expect(typed.pane.reportMetadata).toBeTypeOf('function');
+    expect(mock.pane.reportMetadata).toBeTypeOf('function');
     expect(typed.workspace.list).toBeTypeOf('function');
     expect(mock.workspace.list).toBeTypeOf('function');
+    expect(typed.workspace.reportMetadata).toBeTypeOf('function');
+    expect(mock.workspace.reportMetadata).toBeTypeOf('function');
     expect(typed.tab.list).toBeTypeOf('function');
     expect(mock.tab.list).toBeTypeOf('function');
+    expect(typed.tab.create).toBeTypeOf('function');
+    expect(mock.tab.create).toBeTypeOf('function');
+    expect(typed.tab.rename).toBeTypeOf('function');
+    expect(mock.tab.rename).toBeTypeOf('function');
     expect(typed.run).toBeTypeOf('function');
     expect(mock.run).toBeTypeOf('function');
     expect(typed.pane.processInfo).toBeTypeOf('function');
     expect(typed.tab.create).toBeTypeOf('function');
     expect(mock.pane.processInfo).toBeTypeOf('function');
-    expect(mock.tab.create).toBeTypeOf('function');
+    expect(typed.plugin.pane.open).toBeTypeOf('function');
     expect(mock.plugin.pane.open).toBeTypeOf('function');
+    expect(typed.plugin.pane.close).toBeTypeOf('function');
     expect(mock.plugin.pane.close).toBeTypeOf('function');
-    expect(mock.pane.list).toBeTypeOf('function');
-    expect(mock.pane.reportMetadata).toBeTypeOf('function');
-    expect(mock.tab.rename).toBeTypeOf('function');
+    expect(typed.workspace.rename).toBeTypeOf('function');
     expect(mock.workspace.rename).toBeTypeOf('function');
+
+    const reportOptions: WorkspaceReportMetadataOptions = {
+      source: 'test',
+      tokens: { status: 'ready' },
+    };
+    expectTypeOf(reportOptions).toEqualTypeOf<WorkspaceReportMetadataOptions>();
+    expectTypeOf<ReturnType<HerdrClient['agent']['list']>>().toEqualTypeOf<Promise<Agent[]>>();
+    expectTypeOf<ReturnType<HerdrClient['workspace']['reportMetadata']>>().toEqualTypeOf<
+      Promise<void>
+    >();
   });
 });
 

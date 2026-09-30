@@ -78,6 +78,7 @@ const WORKSPACE_SPEC: ResourceSpec = [
 ];
 const TAB_SPEC: ResourceSpec = ['tab.list', 'tab_list', 'tabs', TAB_FIELDS];
 const PANE_LIST_SPEC: ResourceSpec = ['pane.list', 'pane_list', 'panes', PANE_FIELDS];
+const AGENT_LIST_SPEC: ResourceSpec = ['agent.list', 'agent_list', 'agents', AGENT_FIELDS];
 const TAB_RENAME_SPEC: ResourceSpec = ['tab.rename', 'tab_info', 'tab', TAB_FIELDS];
 const WORKSPACE_RENAME_SPEC: ResourceSpec = [
   'workspace.rename',
@@ -92,6 +93,14 @@ export function parseAgentResponse(
   timeoutMs: number,
 ): Agent {
   return parseResourceResponse(result, argv, timeoutMs, AGENT_SPEC);
+}
+
+export function parseAgentListResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): Agent[] {
+  return parseResourceListResponse(result, argv, timeoutMs, AGENT_LIST_SPEC);
 }
 
 export function parsePaneResponse(
@@ -268,6 +277,14 @@ export function parsePaneReportMetadataResponse(
   assertCommandSucceeded(result, 'pane.reportMetadata', argv, timeoutMs);
 }
 
+export function parseWorkspaceReportMetadataResponse(
+  result: HerdrCommandResult,
+  argv: readonly string[],
+  timeoutMs: number,
+): void {
+  assertCommandSucceeded(result, 'workspace.reportMetadata', argv, timeoutMs);
+}
+
 /** Runs an unmodeled CLI command without interpreting its stdout. */
 export function parseRunResponse(
   result: HerdrCommandResult,
@@ -316,7 +333,7 @@ function parseResourceListResponse<T>(
       throw responseError(operation, argv, `result.${payloadKey}[${index}] must be an object.`);
     }
     validateRequiredFields(item, operation, argv, `result.${payloadKey}[${index}]`, fields);
-    if (payloadKey === 'panes') {
+    if (payloadKey === 'panes' || payloadKey === 'agents') {
       validateAgentSession(item, operation, argv, `result.${payloadKey}[${index}]`);
     }
     return item as T;

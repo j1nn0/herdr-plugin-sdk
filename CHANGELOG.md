@@ -8,6 +8,15 @@ Maintenance convention: Work lands under [Unreleased]. Before a release, it move
 
 ## [Unreleased]
 
+### Added
+
+- Typed `agent.list()` and `workspace.reportMetadata()` operations with `WorkspaceReportMetadataOptions`.
+- `createAgentListOutputFixture()` and mock-client support for both new operations.
+
+### Changed
+
+- `HerdrClient` gains two additional required methods in the upcoming 0.5.0. Manual `HerdrClient` implementations must add them. `createHerdrClient`/`createMockHerdrClient` users require no manual migration.
+
 ## [0.4.0] - 2026-09-26
 
 ### Added

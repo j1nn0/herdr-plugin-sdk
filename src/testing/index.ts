@@ -2,6 +2,7 @@
 export {
   createAgentFixture,
   createAgentGetOutputFixture,
+  createAgentListOutputFixture,
   createCliErrorOutputFixture,
 } from './fixtures.js';
 export { createMockHerdrClient } from './mock-client.js';

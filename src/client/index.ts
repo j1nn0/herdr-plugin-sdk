@@ -20,5 +20,6 @@ export type {
   TabCreateOptions,
   TabCreateResult,
   Workspace,
+  WorkspaceReportMetadataOptions,
 } from './types.js';
 export type { HerdrCommandExecutor, HerdrCommandRequest, HerdrCommandResult } from './executor.js';
